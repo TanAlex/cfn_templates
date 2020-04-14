@@ -1,0 +1,81 @@
+- |-
+  <powershell>
+  $bucket = 'hubble-config-
+- Ref: EnvironmentName
+- |-
+  '
+  $file = 'configs-
+- Ref: CustomerName
+- |-
+  /attributes.rb'
+  $dest =  'C:\\chef\\cookbooks-0\\hubble\\attributes\\app_server.rb'
+  read-s3object -bucketname $bucket -key $file -file $dest
+
+  $bucket = 'hubble-config-
+- Ref: EnvironmentName
+- |-
+  '
+  $file = 'configs-
+- Ref: CustomerName
+- |-
+  /NonErpColumns.xml'
+  $dest =  'C:\\chef\\cookbooks-0\\hubble\\templates\\default\onErpColumns.xml'
+  read-s3object -bucketname $bucket -key $file -file $dest
+
+  $bucket = 'hubble-config-
+- Ref: EnvironmentName
+- |-
+  '
+  $file = 'configs-
+- Ref: CustomerName
+- |-
+  /RepositorySelection.xml'
+  $dest =  'C:\\chef\\cookbooks-0\\hubble\\templates\\default\\RepositorySelection.xml'
+  read-s3object -bucketname $bucket -key $file -file $dest
+
+  mkdir C:\\workspace
+  aws s3 sync s3://hubble-config-
+- Ref: EnvironmentName
+- "/configs-"
+- Ref: CustomerName
+- |-
+  /workspace C:\\workspace
+
+
+
+  mkdir "c:\cwagent"
+  wget "https://s3.amazonaws.com/amazoncloudwatch-agent/windows/amd64/latest/AmazonCloudWatchAgent.zip" -OutFile "C:\cwagent\cwagent.zip"
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  function Unzip
+  {
+      param([string]$zipfile, [string]$outpath)
+      [System.IO.Compression.ZipFile]::ExtractToDirectory($zipfile, $outpath)
+  }
+  Unzip "C:\cwagent\cwagent.zip" "C:\cwagent"
+  cd "C:\cwagent"
+  .\install.ps1
+  
+  $bucket = "hubble-chef-configs"
+  $file = "hubble-software/cwagent.config.json"
+  $dest = "C:\Program Files\Amazon\AmazonCloudWatchAgent\config.json"
+  read-s3object -bucketname $bucket -key $file -file $dest
+  cd "C:\Program Files\Amazon\AmazonCloudWatchAgent"
+  .\amazon-cloudwatch-agent-ctl.ps1 -a fetch-config -m ec2 -c file:config.json -s
+
+  $file= 'C:\\opscode\\chef\\bin\\chef-solo'
+  $arguments= '--legacy-mode -c C:\\chef\\solo.rb -o recipe[hubble::server_
+- Ref: ServerType
+- |
+  _post_configure] -l debug -L c:\\chef\\solo.log'
+  Start-Process `
+       -file  $file `
+       -arg $arguments `
+       -passthru | wait-process
+
+  $file= 'C:\\Windows\\SysWOW64\\shutdown.exe'
+  $arguments= '/r /t 5'
+  Start-Process `
+       -file  $file `
+       -arg $arguments `
+       -passthru | wait-process
+  </powershell>

@@ -1,0 +1,49 @@
+namespace: ${namespace}
+stacker_bucket: ${namespace}-aws-health-events-${region}
+
+sys_path: ../../stacker/modules/phd-slack
+
+package_sources:
+  git:
+    - uri: ssh://git@bitbucket.org/corpinfo/msp-stacker-modules.git
+      branch: aws-health-events-python3
+      paths:
+        - aws-health-events
+        - msp-hooks
+
+lookups:
+  lambda_upload_bucket: blueprints.local_lookups.awslambda.bucket
+  lambda_upload_key: blueprints.local_lookups.awslambda.key
+
+pre_build:
+  - path: ssm.set_parameter
+    args:
+      parameter: /devops/slack/webhookurl
+      type: SecureString
+  - path: ssm.set_parameter
+    args:
+      parameter: /devops/slack/channel
+      type: SecureString
+  - path: awslambda_hooks.upload_remote_lambda_function_from_local
+    required: true
+    data_key: lambda
+    args:
+      bucket: ${namespace}-aws-health-events-${region}
+      functions:
+        limit_code:
+          path: aws-health-events/blueprints/lambda_src/
+          include:
+            - '*'
+
+stacks:
+  aws-health-events:
+    class_path: blueprints.lambda.BlueprintClass
+    enabled: ${enable_health_events}
+    variables:
+      CodeS3Bucket: ${lambda_upload_bucket lambda::limit_code}
+      CodeS3Key: ${lambda_upload_key lambda::limit_code}
+      CustomerName: ${customer}
+      AlertTopicArn: ${default phd_sns_alert::undefined}
+      AlertInsuffTopicArn: ''
+      SlackChannel: ${ssmstore ${region}@/devops/slack/channel}
+      SlackHook: ${ssmstore ${region}@/devops/slack/webhookurl}

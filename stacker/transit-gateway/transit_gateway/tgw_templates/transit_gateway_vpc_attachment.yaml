@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Transit Gateway VPC Attachment - 1.0.0
+
+Parameters:
+  ApplicationName:
+    Description: Name of application
+    Type: String
+  CustomerName:
+    Description: Name of Customer
+    Type: String
+    Default: onica
+  EnvironmentName:
+    Description: Name of Environment
+    Type: String
+    Default: common
+  CostCenter:
+    Type: String
+    Description: Tag value
+    Default: '0'
+  TechOwner:
+    Type: String
+    Description: Tag value
+    Default: Onica
+  TechOwnerEmail:
+    Type: String
+    Description: Tag value
+    Default: incidents@onica.com
+  VpcId:
+    Type: String
+    Description: VPC to be attached to the Transit Gateway.
+  SubnetIds:
+    Type: CommaDelimitedList
+    Description: One subnet per AZ to route traffic through the Transit Gateway.
+  TransitGatewayId:
+    Type: String
+    Description: ID of the TransitGateway.
+    Default: 'undefined'
+  AttachmentName:
+    Type: String
+    Description: (optional) Name to use for the Transit Gateway VPC attachment.
+    Default: 'undefined'
+
+Conditions:
+  TransitGatewayProvided: !Not [!Equals [!Ref TransitGatewayId, 'undefined']]
+  AttachmentNameProvided: !Not [!Equals [!Ref AttachmentName, 'undefined']]
+
+Resources:
+  TransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Condition: TransitGatewayProvided
+    Properties:
+      TransitGatewayId: !Ref TransitGatewayId
+      VpcId: !Ref VpcId
+      SubnetIds: !Ref SubnetIds
+      Tags:
+        - Key: Name
+          Value: !If
+            - AttachmentNameProvided
+            - !Ref AttachmentName
+            - !Sub ${CustomerName}-${ApplicationName}-${EnvironmentName}-${VpcId}
+        - Key: Application
+          Value: !Ref ApplicationName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Customer
+          Value: !Ref CustomerName
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: TechOwner
+          Value: !Ref TechOwner
+        - Key: TechOwnerEmail
+          Value: !Ref TechOwnerEmail

@@ -1,0 +1,65 @@
+namespace: ${namespace}
+stacker_bucket: ""
+
+lookups:
+  elbv2_ip: squid_server.local_lookups.elbv2_ip.handle
+
+package_sources:
+  git:
+    - uri: git@bitbucket.org:corpinfo/msp-stacker-modules.git
+      paths:
+        - sns
+
+tags:
+  Application: squidProxyServers
+  Environment: ${environment}
+  CostCenter: 000000
+  TechOwner: Onica
+  TechOwnerEmail: incidents@onica.com
+
+common_parameters: &common_parameters
+  CustomerName: ${customer}
+  EnvironmentName: ${environment}
+  ApplicationName: squidProxyServers
+
+sys_path: ../../stacker/modules
+
+stacks:
+  squid-nlb:
+    class_path: squid_server.squid_server_blueprints.nlb.NetworkLoadBalancer
+    variables:
+      <<: *common_parameters
+      Scheme: internet-facing
+      SubnetMappings: ${squid_subnets}
+      VpcId: ${squid_vpc}
+
+  squid-nlbInternal:
+    class_path: squid_server.squid_server_blueprints.nlb.NetworkLoadBalancer
+    variables:
+      <<: *common_parameters
+      Scheme: internal
+      LoadBalancerSubnets: ${squid_subnets}
+      VpcId: ${squid_vpc}
+
+  squid-asg:
+    class_path: squid_server.squid_server_blueprints.asg.AutoScalingGroup
+    variables:
+      <<: *common_parameters
+      AppAMI: ${ami owners:amazon name_regex:amzn2-ami-hvm-.+-x86_64-ebs}  # amazon linux
+      AppInstanceType: ${squid_instance_type}
+      AppPolicies: arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+      AppSubnets: ${squid_subnets}
+      ASGMinValue: ${squid_min_instance}
+      ASGMaxValue: ${squid_max_instance}
+      ASGDesiredValue: ${squid_des_instance}
+      ClusterVolumeSize: ${squid_volume_size}
+      ClusterVolumeType: gp2
+      HealthCheckGracePeriod: 300
+      HealthCheckType: EC2
+      KeyName: yvrAdmin
+      TargetGroupARNs: ${output squid-nlb::TargetGroup3128Arn},${output squid-nlbInternal::TargetGroup3128Arn}
+      UserData: ${file plain:file://../../stacker/modules/squid_server/squid_server_blueprints/userdata.sh}
+      VpcId: ${squid_vpc}
+      NLBIps: ${elbv2_ip ${rxref squid-nlb::NLBinternetfacingFullName}}
+      InternalNLBIps: ${elbv2_ip ${rxref squid-nlbInternal::NLBinternalFullName}}
+      BastionSG: ${squid_bastion_sg}

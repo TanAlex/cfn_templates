@@ -1,0 +1,46 @@
+# aws s3 sync ./site s3://<bucket-name> --recursive
+# URL: http://<bucket-name>.s3-website-<region>.amazonaws.com
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: Resources to host documentation.
+
+Parameters:
+SiteName:
+    Description: Site name
+    Type: String
+    Default: tp-beta-learning
+
+Resources:
+S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+        BucketName: !Ref SiteName
+        AccessControl: PublicRead
+        WebsiteConfiguration:
+            IndexDocument: index.html
+            ErrorDocument: error.html
+
+BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+    PolicyDocument:
+        Id: MyPolicy
+        Version: 2012-10-17
+        Statement:
+          - Sid: PublicReadForGetBucketObjects
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Join
+            - ''
+            - - 'arn:aws:s3:::'
+                - !Ref S3Bucket
+                - /*
+    Bucket: !Ref S3Bucket
+
+Outputs:
+WebsiteURL:
+    Value: !GetAtt
+        - S3Bucket
+        - WebsiteURL
+    Description: URL for website hosted on S3

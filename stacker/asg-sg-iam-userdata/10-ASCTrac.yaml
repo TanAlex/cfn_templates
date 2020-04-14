@@ -1,0 +1,24 @@
+namespace: ${namespace}
+stacker_bucket: ${namespace}-${region}
+sys_path: ../../stacker/modules/
+
+common_tags: &common_tags
+  CustomerName: ${customer}
+  EnvironmentName: ${environment}
+  ApplicationName: asctrac
+  ApplicationTier: application
+  CostCenter: platform
+  TechOwner: platform
+  TechOwnerEmail: bclavellina@diamondfulfillment.com
+  DataClassification: none
+
+stacks:
+  asctrac-asg:
+    class_path: asctrac.blueprints.asg.BlueprintClass
+    enabled: true
+    variables:
+      <<: *common_tags
+      OnPremCIDR: '172.16.0.0/16'
+      VpcId: ${xref dfs-prod-vpc::VpcId}
+      AppSubnets: ${xref dfs-prod-subnets::PrivateSubnetAId},${xref dfs-prod-subnets::PrivateSubnetBId}
+      KeyName: 'dfs-prod-common'

@@ -1,0 +1,129 @@
+  Boto3LambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: boto3-layer
+      Content:
+        S3Bucket: sa-security-specialist-workshops-us-east-2
+        S3Key: devsecops/layers/boto3.zip
+      CompatibleRuntimes:
+        - python3.7
+      LicenseInfo: Available under the MIT-0 license.
+
+  SendFindingsLambda: 
+    Type: AWS::Lambda::Function
+    Properties:
+      Layers:
+        - !Ref Boto3LambdaLayer
+      FunctionName: !Join [ '-', [ !Ref ResourceName, 'sendfindings', 'securityhub'  ] ]
+      Description: Sends payload with vulnerabilities findings to Security Hub
+      Handler: index.lambda_handler
+      Role: !GetAtt SendFindingsLambdaRole.Arn
+      Environment:
+        Variables:
+          ACCOUNT_ID: !Ref AWS::AccountId
+          REGION: !Ref AWS::Region
+      Code:
+        ZipFile: |
+          from __future__ import print_function
+          import boto3
+          import traceback
+          import os
+          import uuid
+          import datetime
+          from enum import Enum
+          from itertools import zip_longest
+
+          client = boto3.client('securityhub')
+          account_id = os.environ['ACCOUNT_ID']
+          region = os.environ['REGION']
+          uuid = str(uuid.uuid4())
+
+          def chunker(seq, size):
+              """Chunk it up"""
+              return (seq[pos:pos + size] for pos in range(0, len(seq), size))
+
+          class Severity(Enum):
+              NONE = 0
+              UNKNOWN = 0
+              LOW =  39
+              NEGLIGIBLE = 39
+              MEDIUM = 69
+              HIGH = 89
+              CRITICAL = 100
+
+          def lambda_handler(event, context):
+              """Get the results of the scan and send them to Security Hub"""
+              if 'vulnerabilities' in event:
+
+                  # product arn format arn:aws:securityhub:us-west-2:123456789012:product/123456789012/default
+                  product_arn = "arn:aws:securityhub:{0}:{1}:product/{2}/default".format(
+                      region,
+                      account_id,
+                      account_id
+                  )
+
+                  image_id = event['image_id']
+                  image_arn = event['image_arn']
+                  curr_time = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat()
+                  
+                  for group in chunker(event['vulnerabilities'], 100):
+                      findings = []
+                      i = 0
+                      for vuln in group:
+                          finding = {
+                              'SchemaVersion': '2018-10-08',
+                              'Id': '{0}-{1}-{2}'.format(image_id,
+                                  vuln['vuln'],
+                                  str(i)),
+                              'ProductArn': product_arn,
+                              'ProductFields': {
+                                'ProviderName': 'Anchore',
+                                'ProviderVersion': 'v0.3.4',
+                              },
+                              'GeneratorId': uuid,
+                              'AwsAccountId': account_id,
+                              'Types': [
+                                  "Software and Configuration Checks/Vulnerabilities/CVE"
+                              ],
+                              'CreatedAt': curr_time,
+                              'UpdatedAt': curr_time,
+                              'Severity': {
+                                  'Normalized': Severity[vuln['severity'].upper()].value
+                              },
+                              'Title': 'Vulnerability {0} found in {1}'.format(vuln['vuln'],
+                                  image_id),
+                              'Description': 'Vulnerability {0} found in {1} for {2}'.format(vuln['vuln'],
+                                  vuln['package'],
+                                  image_id),
+                              'SourceUrl': vuln['url'],
+                              'Resources': [
+                                  {
+                                      'Type': 'Container',
+                                      'Id': image_arn,
+                                      'Details': {
+                                          'Container': {
+                                              'ImageId': image_id,
+                                          }
+                                      }
+                                  }
+                              ],
+                              'Remediation': {
+                                  'Recommendation': {
+                                      'Text': 'Update {0} to version {1}'.format(vuln['package'],
+                                                                                  vuln['fix'])
+                                  }
+                              },
+                              'UserDefinedFields': {
+                                  'feedGroup': vuln['feed_group'],
+                                  'package': vuln['package'],
+                                  'packageType': vuln['package_type'],
+                                  'severity': vuln['severity'],
+                              }
+                          }
+                          findings.append(finding)
+                          i += 1
+
+                      # Report the chunk of findings
+                      client.batch_import_findings(Findings=findings)
+      Runtime: python3.7
+      Timeout: 300

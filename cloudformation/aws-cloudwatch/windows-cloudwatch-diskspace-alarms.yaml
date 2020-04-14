@@ -1,0 +1,82 @@
+# https://gist.githubusercontent.com/it-am/93b3fca2ad690e58c69321122a373214/raw/3de3c115a0559e3f3bcc55cc63e280ca97311306/cloudformation-windows-cloudwatch-diskspace-alarms.yaml
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Windows CloudWatch Diskspace Alarms
+#-------------------------------------------------------------------------------
+Parameters:
+#-------------------------------------------------------------------------------
+  instanceid:
+    Description: "Choose an instance id"
+    Type: AWS::EC2::Instance::Id
+
+  instancename:
+    Description: "Please provide EC2 instance name"
+    Type: "String"
+    MinLength: '1'
+    MaxLength: '50'
+
+  criticalsnsarn:
+    Description: "Please provide an ARN of SNS topic - CRITICAL Type"
+    Type: "String"
+
+  warningsnsarn:
+    Description: "Please provide an ARN of SNS topic - WARNING Type"
+    Type: "String"
+    
+  volume:
+    Description: "Provide Disk name (ex.: C:)"
+    Type: "String"
+    Default: "C:"
+    MinLength: '1'
+    MaxLength: '5'
+#-------------------------------------------------------------------------------
+Resources:
+#-------------------------------------------------------------------------------
+  DiskSpaceWARNING:
+    Type: AWS::CloudWatch::Alarm
+    DeletionPolicy: Retain
+    Properties:
+      AlarmDescription: !Sub "${instancename} - ${instanceid} - over 90% of ${volume} Drive space is in use"
+      AlarmActions:
+      - !Ref warningsnsarn
+      OKActions:
+      - !Ref warningsnsarn
+      MetricName: "LogicalDisk % Free Space"
+      Namespace: CWAgent
+      Statistic: Average
+      Period: '300'
+      EvaluationPeriods: '1'
+      Threshold: '10'
+      ComparisonOperator: LessThanOrEqualToThreshold
+      Dimensions:
+      - Name: InstanceId
+        Value: !Ref instanceid
+      - Name: instance
+        Value: !Ref volume
+      - Name: objectname
+        Value: LogicalDisk
+#-------------------------------------------------------------------------------
+  DiskSpaceCRITICAL:
+    Type: AWS::CloudWatch::Alarm
+    DeletionPolicy: Retain
+    Properties:
+      AlarmDescription: !Sub "${instancename} - ${instanceid} - over 95% of ${volume} Drive space is in use"
+      AlarmActions:
+      - !Ref criticalsnsarn
+      OKActions:
+      - !Ref criticalsnsarn
+      MetricName: "LogicalDisk % Free Space"
+      Namespace: CWAgent
+      Statistic: Average
+      Period: '300'
+      EvaluationPeriods: '1'
+      Threshold: '5'
+      ComparisonOperator: LessThanOrEqualToThreshold
+      Dimensions:
+      - Name: InstanceId
+        Value: !Ref instanceid
+      - Name: instance
+        Value: !Ref volume
+      - Name: objectname
+        Value: LogicalDisk
+#-------------------------------------------------------------------------------

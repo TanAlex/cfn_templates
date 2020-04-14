@@ -1,0 +1,41 @@
+namespace: ${namespace}
+stacker_bucket: ${namespace}-${region}
+
+sys_path: ../../stacker/modules
+
+common_parameters: &common_parameters
+  CustomerName: ${namespace}
+  EnvironmentName: ${environment}
+  VpcId: vpc-d7eab2b2
+  ApplicationName: pubapp
+  ApplicationTier: Web
+  TechOwner: David Porter
+  TechOwnerEmail: dporter@courtcall.com
+
+stacks:
+  pubapp-alb:
+    class_path: pubapp.blueprints.pubapp_alb.BlueprintClass
+    variables:
+      <<: *common_parameters
+      AlbSubnetIds: subnet-b93877ce,subnet-2c2d0449,subnet-7fc3a426
+      AcmCertificate: arn:aws:acm:us-west-2:784441158691:certificate/0e3a803b-01d4-4cfb-9199-8ef35b446c0f
+      AlbLogBucket: ${rxref pubapp-log-bucket::Bucket}
+      OnPremiseCidr: 10.200.10.0/24
+      TargetInstanceIds:
+        # - i-0e2558aecf25ff9a0  # CCCAWS-PUBAPP01
+        - i-0868d8903f6071e7a  # CCCAWS-PUBAPP02
+  pubapp-waf:
+    requires:
+      - pubapp-alb
+    template_path: pubapp/templates/pubapp_waf.yaml
+    variables:
+      <<: *common_parameters
+  pubapp-waf-alb-association:
+    requires:
+      - pubapp-waf
+    class_path: pubapp.blueprints.pubapp_waf_alb_association.BlueprintClass
+    variables:
+      <<: *common_parameters
+      WafAcl: ${rxref pubapp-waf::WAFWebACL}
+      Resources:
+        - ${rxref pubapp-alb::Alb}

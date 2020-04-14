@@ -1,0 +1,254 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'This template deploys single box instance based on input parameters for test purpose - 1.0.0'
+
+Parameters:
+  ChefEnvironment:
+    Type: String
+    Default: 'undefined'
+    Description: Chef Environment
+  ChefRunlist:
+    Type: String
+    Default: 'undefined'
+    Description: Chef Run list
+  Name:
+    Type: String
+    Default: 'undefined'
+    Description: Name Tag value
+  Application:
+    Type: String
+    Default: 'undefined'
+    Description: Application Tag value
+  Environment:
+    Type: String
+    Default: 'undefined'
+    Description: Environment Tag value
+  CostCenter:
+    Type: String
+    Description: Tag value
+    Default: 'undefined'
+  TechOwner:
+    Type: String
+    Description: Tag value
+    Default: platform
+  TechOwnerEmail:
+    Type: String
+    Description: Tag value
+    Default: prodsupport@getsensibill.com
+  KeyPairName:
+    Type: String
+    Description: Existing KeyPair name
+    Default: ''
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Default: 'undefined'
+    Description: Image Id of Single Box Instance
+  PrivateSubnetID:
+    Description: ID of the private subnet 1 in Availability Zone 1 (e.g., subnet-a0246dcd)
+    Type: AWS::EC2::Subnet::Id
+  Volume1Size:
+    Default: '25'
+    Description: Volume size for the root volume, in GiB
+    MaxValue: '100'
+    MinValue: '25'
+    Type: Number
+  Volume1Type:
+    AllowedValues:
+      - gp2
+      - io1
+    Default: gp2
+    Description: Volume type for the rool volume
+    Type: String
+  Volume2Size:
+    Default: '100'
+    Description: Volume size for the storage volume, in GiB
+    MaxValue: '1024'
+    MinValue: '100'
+    Type: Number
+  Volume2Type:
+    AllowedValues:
+      - gp2
+      - io1
+    Default: gp2
+    Description: Volume type for the storage volume
+    Type: String
+  InstanceType:
+    Default: m5.xlarge
+    Description: Amazon EC2 instance type for the single box instance
+    Type: String
+  SecurityGroupId:
+    Description: Security Group Id for single box
+    Type: List<AWS::EC2::SecurityGroup::Id>
+
+Conditions:
+  HasKeyName:
+    Fn::Not:
+    - Fn::Equals:
+      - ''
+      - Ref: KeyPairName
+
+Resources:
+  SingleBoxInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+        - PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Action:
+                  - s3:GetObject
+                  - s3:ListObjects
+                Resource: !Sub arn:${AWS::Partition}:s3:::sensibill-${AWS::Region}-chef/*
+                Effect: Allow
+              - Action:
+                  - s3:GetObject
+                  - s3:ListObjects
+                Resource: !Sub arn:${AWS::Partition}:s3:::sensibill-${AWS::Region}-chef
+                Effect: Allow
+              - Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/chef/*
+                Effect: Allow
+              - Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeTags
+                Resource: '*'
+                Effect: Allow
+              - Action:
+                  - ec2:CreateTags
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                Condition:
+                  StringEquals:
+                    ec2:ResourceTag/aws:cloudformation:stack-name: !Ref AWS::StackName
+                Effect: Allow
+          PolicyName: ec2-chef-policy
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Effect: Allow
+        Version: '2012-10-17'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+  SingleBoxProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - Ref: SingleBoxInstanceRole
+      Path: /
+  SingleBoxInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      Tenancy: default
+      ImageId:
+        Ref: ImageId
+      IamInstanceProfile:
+        Ref: SingleBoxProfile
+      InstanceType:
+        Ref: InstanceType
+      EbsOptimized: True
+      SubnetId:
+        Ref: PrivateSubnetID
+      SecurityGroupIds:
+        Ref: SecurityGroupId
+      Tags:
+        - Key: Name
+          Value:
+            Ref: Name
+        - Key: Application
+          Value:
+            Ref: Application
+        - Key: ChefEnvironment
+          Value:
+            Ref: ChefEnvironment
+        - Key: ChefRunlist
+          Value:
+            Ref: ChefRunlist
+        - Key: Environment
+          Value:
+            Ref: Environment
+        - Key: CostCenter
+          Value:
+            Ref: CostCenter
+        - Key: TechOwner
+          Value:
+            Ref: TechOwner
+        - Key: TechOwnerEmail
+          Value:
+            Ref: TechOwnerEmail
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize:
+              Ref: Volume1Size
+            VolumeType:
+              Ref: Volume1Type
+        - DeviceName: xvdf
+          Ebs:
+            VolumeSize:
+              Ref: Volume2Size
+            VolumeType:
+              Ref: Volume2Type
+      KeyName:
+        Fn::If:
+        - HasKeyName
+        - Ref: KeyPairName
+        - Ref: AWS::NoValue
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #cloud-config
+            repo_update: true
+            repo_upgrade: all
+            packages:
+            - wget
+            - heat-cfntools
+            - python3
+            - python3-pip
+            - python3-boto3
+            runcmd:
+            - pip3 install awscli
+            - curl --max-time 10 --retry-delay 5 --retry 5 -L https://www.chef.io/chef/install.sh | bash -s -- -v 12.21.3
+            - mkdir -p /var/log/chef /etc/chef
+            - region=$(curl http://169.254.169.254/latest/dynamic/instance-identity/document|grep region|awk -F\" '{print $4}')
+            - aws --region $region s3 sync s3://sensibill-ca-central-1-chef/all/chefconfig/ /etc/chef/
+            - aws ssm get-parameter --name /chef/validatorkey --region  $region --with-decryption --output text --query Parameter.Value >> /etc/chef/sensibill-validator.pem
+            - aws ssm get-parameter --name /chef/databagsecretkey --region  $region --with-decryption --output text --query Parameter.Value >> /etc/chef/encrypted_data_bag_secret
+            - python3 /etc/chef/chefclient.py
+
+Outputs:
+  Instance:
+    Description: Instance ID
+    Value:
+      Ref: SingleBoxInstance
+  InstanceRole:
+    Description: Instance Role
+    Value:
+      Ref: SingleBoxInstanceRole
+  InstanceRoleArn:
+    Description: Instance Role ARN
+    Value:
+      Fn::GetAtt:
+      - SingleBoxInstanceRole
+      - Arn
+  PrivateIp:
+    Description: Private IP address
+    Value:
+      Fn::GetAtt:
+      - SingleBoxInstance
+      - PrivateIp
+  InstanceProfile:
+    Description: Instance Profile
+    Value:
+      Ref: SingleBoxProfile
+  InstanceProfileArn:
+    Description: Instance Profile ARN
+    Value:
+      Fn::GetAtt:
+      - SingleBoxProfile
+      - Arn

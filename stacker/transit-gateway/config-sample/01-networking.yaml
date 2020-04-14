@@ -1,0 +1,78 @@
+namespace: ${namespace}
+stacker_bucket: ${namespace}-stacker-${region}
+
+sys_path: ../../stacker/modules
+
+common_parameters: &common_parameters
+  CustomerName: ${customer}
+  EnvironmentName: ${environment}
+  ApplicationName: core
+  CostCenter: 000000
+  TechOwner: Peter Schnack
+  TechOwnerEmail: prodsupport@lisi-aerospace.com
+
+stacks:
+  flowlog-bucket:
+    class_path: centralized_logging.blueprints.flowlogs_s3.BlueprintClass
+    variables:
+      <<: *common_parameters
+      BucketName: ${namespace}-flowlogs-${region}
+  vpc:
+    class_path: vpc.blueprints.vpc.BlueprintClass
+    enabled: ${enable_vpc}
+    requires:
+      - flowlog-bucket
+    variables:
+      <<: *common_parameters
+      CidrBlock: ${vpc_cidr}
+      DHCPOptions: disable
+      DomainNameServers: 'undefined'
+      NetbiosNameServers: 'undefined'
+      FlowLogBucket: ${rxref flowlog-bucket::Bucket}
+  subnets:
+    class_path: vpc.blueprints.subnets.BlueprintClass
+    enabled: ${enable_vpc}
+    requires:
+      - vpc
+    variables:
+      <<: *common_parameters
+      VPC: ${output vpc::VpcId}
+      IGW: ${output vpc::IgwId}
+      PrivateSubnetFirewall: 'undefined'
+      PublicSubnetACidr: ${vpc_pub_a_cidr}
+      PublicSubnetBCidr: ${vpc_pub_b_cidr}
+      PrivateSubnetACidr: ${vpc_priv_a_cidr}
+      PrivateSubnetBCidr: ${vpc_priv_b_cidr}
+      ProtectedSubnetACidr: ${vpc_prot_a_cidr}
+      ProtectedSubnetBCidr: ${vpc_prot_b_cidr}
+  admin-security-group:
+    class_path: vpc.blueprints.admin_sg.BlueprintClass
+    enabled: ${enable_vpc}
+    requires:
+      - vpc
+    variables:
+      <<: *common_parameters
+      VpcId: ${output vpc::VpcId}
+      InboundCidrRanges:
+        - ${rxref vpc::VpcCidrBlock}
+  transit-gateway:
+    template_path: transit_gateway/tgw_templates/transit_gateway.yaml
+    enabled: ${enable_local_transit_gateway}
+    requires:
+      - vpc
+    variables:
+      <<: *common_parameters
+      VpcId: ${rxref vpc::VpcId}
+      SubnetIds: ${rxref subnets::PrivateSubnetAId}
+      HubAccountId: '152876274589'
+      Principals: 100618329711,668335946118
+  transit-gateway-attach-vpc:
+    enabled: ${attach_external_transit_gateway}
+    requires:
+      - vpc
+    template_path: transit_gateway/tgw_templates/transit_gateway_vpc_attachment.yaml
+    variables:
+      <<: *common_parameters
+      VpcId: ${rxref vpc::VpcId}
+      SubnetIds: ${rxref subnets::PrivateSubnetAId},${rxref subnets::PrivateSubnetBId}
+      TransitGatewayId: tgw-0ab9b3878ad8ca152

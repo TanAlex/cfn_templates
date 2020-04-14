@@ -1,0 +1,85 @@
+# LambdaExecutionRole - Lambda excution role for our Lambda functions
+#
+# I am using the same Lambda execution role for all of the functions.
+# In a production scenario, I would use separate Lambda roles tailored to
+# each Lambda function to enforce the principle of least privilege.
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: '/'
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+
+# RandomStrFunction - Generate a string of random characters
+#
+# This AWS Lambda function is used to generate a random string
+# of letters. We'll use the Python string module to do this.
+# You can change the composition of the string by changing the
+# methods that are used.
+
+  RandomStrFunction:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Description: 'Generate a random string of characters'
+      Handler: index.handler
+      MemorySize: 128
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: 'python3.6'
+      Timeout: 30
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          import string
+          import random
+          def handler(event, context):
+            if event['RequestType'] == 'Delete':
+              responseData = {}      
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+              return
+            
+            StringLength=int(event['ResourceProperties']['StringLength'])
+            
+            if StringLength <= 0:
+              responseData = {}
+              cfnresponse.send(event, context, cfnresponse.FAILED)
+            else:
+              responseData = {}
+              chars=string.ascii_letters # change this to use other kinds of characters
+              
+              responseData['RandomString'] = ''.join(random.choice(chars) for _ in range(StringLength))
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+            
+            return
+# DbRootPassword - The AWS Lambda-backed resource for generating a random password
+#
+# Parameters
+#
+# ServiceToken - a pointer to the AWS Lambda function
+# StringLength - the length of the random string to generate
+
+  DbRootPassword:
+    Type: Custom::DBRootPassword
+    Properties:
+      ServiceToken: !GetAtt RandomStrFunction.Arn
+      StringLength: '8'

@@ -1,0 +1,1 @@
+This stack creates a ASG that is pointed at by two NLBs one internal and one external (with EIPs). This bootstraps the squid install and is the basis of the system.

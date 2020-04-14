@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Secondary CF Stack with EC2 and Custom Resource
+#-------------------------------------------------------------------------------
+Parameters:
+  PrimaryStack:
+    Description: "Please provide a name of the primary stack with Lambda"
+    Type: "String"
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t2.micro
+    ConstraintDescription: Must be a valid EC2 instance type
+  InstanceName:
+    Description: EC2 Instance Name Tag
+    Type: String
+  DiskSize:
+    Description: Instance Primary Disk Size (Gb)
+    Type: Number
+    Default : 50
+  KeyName:
+    Description: SSH Key Name
+    Type: AWS::EC2::KeyPair::KeyName
+  InstanceSubnetID:
+    Description: Please choose Subnet
+    Type: AWS::EC2::Subnet::Id
+  InstanceSGID:
+    Description: Please choose Security Group
+    Type: AWS::EC2::SecurityGroup::Id
+  WindowsVersion:
+    Description: Windows Version
+    Type: String
+    Default: Windows Server 2016 Base English 64-bit (x86)
+    AllowedValues:
+      - Windows Server 2008 SP2 English 32-bit
+      - Windows Server 2008 SP2 English 64-bit
+      - Windows Server 2008 R2 English 64-bit
+      - Windows Server 2012 RTM English 64-bit
+      - Windows Server 2012 R2 English 64-bit
+      - Windows Server 2016 Base English 64-bit (x86)
+      - Windows Server 2019 Base English 64-bit (x86)
+    ConstraintDescription: Must be a valid Windows version.
+#-------------------------------------------------------------------------------
+Resources:
+  EC2Instance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: !Ref InstanceType
+      BlockDeviceMappings:
+        -
+          DeviceName: "/dev/sda1"
+          Ebs:
+            VolumeSize: !Ref DiskSize
+            VolumeType: gp2
+      ImageId: !GetAtt
+        - AMIInfo
+        - Id
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - !Ref InstanceSGID
+      SubnetId: !Ref InstanceSubnetID
+      Tags:
+       - Key: Name
+         Value: !Ref InstanceName
+  AMIInfo:
+    Type: 'Custom::AMIInfo'
+    Properties:
+      ServiceToken:
+        Fn::ImportValue: !Sub "${PrimaryStack}-LambdaARN"
+      Region: !Ref 'AWS::Region'
+      OSName: !Ref WindowsVersion
+#-------------------------------------------------------------------------------
+Outputs:
+  AMIID:
+    Description: The Amazon EC2 instance AMI ID.
+    Value: !GetAtt
+      - AMIInfo
+      - Id

@@ -1,0 +1,1130 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: This AWS CloudFormation Template configures a pipeline that is used for the Container DevSecOps workshop.  
+
+Parameters:
+  
+  ResourceName:
+    Type: String
+    Default: container-devsecops-wksp
+    AllowedValues: 
+      - container-devsecops-wksp
+    Description: Prefix of Resources created for this workshop.
+
+  FailWhen:
+    Type: String
+    Default: High
+    AllowedValues: 
+      - Low
+      - Medium
+      - High
+      - Critical
+    Description: Threshold to fail the pipeline if app image has vulnerabilities
+
+Metadata: 
+  AWS::CloudFormation::Interface:
+    ParameterGroups: 
+      - 
+        Label: 
+          default: "Resource and Notification Configuration"
+        Parameters: 
+          - ResourceName
+      - 
+        Label: 
+          default: "Fail Pipeline Threshold"
+        Parameters: 
+          - FailWhen
+
+    ParameterLabels: 
+      ResourceName:
+        default: "Resource Prefix"
+      FailWhen:
+        default: "Fail When"
+
+
+Mappings: {}
+
+Conditions: {}
+
+Resources:
+
+  ################### Repo Resources ###################
+
+  ### Application Repository
+  AppRepository: 
+    Type: AWS::CodeCommit::Repository
+    Properties: 
+      RepositoryDescription: Sample application repository to support the container devsecops workshop.
+      RepositoryName: !Join [ '-', [ !Ref ResourceName, 'app'  ] ]
+  
+  ### Configuration Repository
+  ConfigRepository: 
+    Type: AWS::CodeCommit::Repository
+    Properties: 
+      RepositoryDescription: Configuration repository to support the container devsecops workshop.
+      RepositoryName: !Join [ '-', [ !Ref ResourceName, 'config'  ] ]
+
+  ### Initial commit to sample application - Custom resource
+  RepositoryInitialCommit:
+    DependsOn: 
+      - AppRepository
+      - ConfigRepository
+    Type: Custom::CustomResource
+    Properties:
+      ServiceToken: !GetAtt 'LambdaRepositoryInitialCommit.Arn'
+      Repo: !Join [ '-', [ !Ref ResourceName, 'app'  ] ]
+      RepoConfig: !Join [ '-', [ !Ref ResourceName, 'config'  ] ]
+
+  ### Initial commit to sample application - Lambda Role
+  LambdaRepositoryInitialCommitRole: 
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: !Join [ '-', [ !Ref ResourceName, 'lambda', 'initial-commit'  ] ]
+      AssumeRolePolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - lambda.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Path: /
+      Policies: 
+        - 
+          PolicyName: InitialCommitPolicy
+          PolicyDocument: 
+            Version: 2012-10-17
+            Statement: 
+              - 
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - 
+                Effect: Allow
+                Action:
+                  - codecommit:*
+                Resource: '*'
+
+  ### Initial commit to sample application - Lambda
+  LambdaRepositoryInitialCommit: 
+    Type: "AWS::Lambda::Function"
+    Properties: 
+      FunctionName: !Join [ '-', [ !Ref ResourceName, 'initial-commit'  ] ]
+      Handler: "initial-commit.handler"
+      Description: "Creates initial commits to respository."
+      Role: !GetAtt 'LambdaRepositoryInitialCommitRole.Arn'
+      Code: 
+        S3Bucket: 'sa-security-specialist-workshops-us-east-2'
+        S3Key: 'devsecops/containers/initial-commit.zip'
+      Runtime: "python2.7"
+      Timeout: "35"
+  
+  ### ECR Repository
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: !Join [ '-', [ !Ref ResourceName, 'sample'  ] ]
+
+  ### Scratch ECR repository
+  ScratchRepository:
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: !Join [ '-', [ !Ref ResourceName, 'scratch'  ] ]
+
+  ### Feedback Loop - Pull Request
+  PREventRuleRole: 
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: !Join [ '-', [ !Ref ResourceName, 'cloudwatch', 'pr'  ] ]
+      AssumeRolePolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - lambda.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Path: /
+      Policies: 
+        - 
+          PolicyName: PRPolicy
+          PolicyDocument: 
+            Version: 2012-10-17
+            Statement: 
+              - 
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - 
+                Effect: Allow
+                Action:
+                  - codepipeline:*
+                Resource: '*'
+
+  PREventRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: !Join [ '-', [ !Ref ResourceName, 'pr'  ] ]
+      Description: "Trigger notifications based on CodeCommit Pull Requests"
+      EventPattern:
+        source:
+          - "aws.codecommit"
+        detail-type:
+          - "CodeCommit Pull Request State Change"
+        resources:
+          - !GetAtt AppRepository.Arn
+        detail:
+          event:
+            - "pullRequestSourceBranchUpdated"
+            - "pullRequestCreated"
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt LambdaPR.Arn
+          Id: !Join [ '-', [ !Ref ResourceName, 'pr'  ] ]
+
+  LambdaPRCommentRole: 
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: !Join [ '-', [ !Ref ResourceName, 'lambda', 'pr'  ] ]
+      AssumeRolePolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - lambda.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Path: /
+      Policies: 
+        - 
+          PolicyName: PRPolicy
+          PolicyDocument: 
+            Version: 2012-10-17
+            Statement: 
+              - 
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - 
+                Effect: Allow
+                Action:
+                  - codecommit:*
+                  - codebuild:*
+                  - codepipeline:StartPipelineExecution
+                  - ssm:DescribeParameters
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                  - ssm:DeleteParameters
+                Resource: '*'
+
+  LambdaPR: 
+    Type: "AWS::Lambda::Function"
+    Properties: 
+      FunctionName: !Join [ '-', [ !Ref ResourceName, 'pr'  ] ]
+      Description: "Adds an initial comment to the pull request."
+      Handler: "index.handler"
+      Environment:
+        Variables:
+          PREFIX: !Ref ResourceName
+      Role: !GetAtt 'LambdaPRCommentRole.Arn'
+      Code:
+        ZipFile: |
+          from __future__ import print_function
+          import datetime
+          import boto3
+          import os
+
+          codecommit_client = boto3.client('codecommit')
+          ssm = boto3.client('ssm')
+          codepipeline = boto3.client('codepipeline')
+
+          # Pipeline Name
+          pipeline = '%s-pipeline' % os.environ['PREFIX']
+
+          def handler(event, context):
+            # Log event
+            print(event)
+
+            # Pull request Event
+            if event['detail']['event'] in ['pullRequestSourceBranchUpdated', 'pullRequestCreated']:
+              
+              # Set variables
+              pull_request_id = event['detail']['pullRequestId']
+              repository_name = event['detail']['repositoryNames'][0]
+              source_commit = event['detail']['sourceCommit']
+              destination_commit = event['detail']['destinationCommit']
+
+              # Write commit details to SSM
+              ssm.put_parameter(
+                Name='prid',
+                Description='Pull Request ID',
+                Value=pull_request_id,
+                Overwrite=True,
+                Type='String'
+              )
+
+              ssm.put_parameter(
+                Name='repo',
+                Description='Repository Name',
+                Value=repository_name,
+                Overwrite=True,
+                Type='String'
+              )
+
+              ssm.put_parameter(
+                Name='sourceCommit',
+                Description='Source Commit',
+                Value=source_commit,
+                Overwrite=True,
+                Type='String'
+              )
+
+              ssm.put_parameter(
+                Name='destinationCommit',
+                Description='Destination Commit',
+                Value=destination_commit,
+                Overwrite=True,
+                Type='String'
+              )
+
+              # Add comments to PR
+              codecommit_client.post_comment_for_pull_request(
+                pullRequestId = pull_request_id,
+                repositoryName = repository_name,
+                beforeCommitId = source_commit,
+                afterCommitId = destination_commit,
+                content = '**Build started at {}.  Starting security testing.**'.format(datetime.datetime.utcnow().time())
+              )
+
+              codepipeline.start_pipeline_execution(
+                name=pipeline,
+              )
+            
+      Runtime: "python2.7"
+      Timeout: "35"
+      MemorySize: 128
+
+  PermissionForEventsToInvokeLambdaPR:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Join [ '-', [ !Ref ResourceName, 'pr'  ] ]
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt PREventRule.Arn
+
+  ################### FEEDBACK LOOPS ###################
+
+  ### Feedback Loop - Dockerfile Analysis CodeBuild
+
+  CBDFEventRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: !Join [ '-', [ !Ref ResourceName, 'codebuild-dockerfile'  ] ]
+      Description: "Triggers when builds fail/pass in CodeBuild for the static analysis of the Dockerfile."
+      EventPattern:
+        source:
+          - "aws.codebuild"
+        detail-type:
+          - "CodeBuild Build State Change"
+        detail:
+          build-status:
+            - "FAILED"
+            - "SUCCEEDED"
+          project-name:
+            - !Ref CodeBuildDFProject
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt LambdaCBDF.Arn
+          Id: !Join [ '-', [ !Ref ResourceName, 'codebuild-dockerfile'  ] ]
+
+  LambdaCBDF: 
+    Type: "AWS::Lambda::Function"
+    Properties: 
+      FunctionName: !Join [ '-', [ !Ref ResourceName, 'codebuild-dockerfile'  ] ]
+      Description: "Adds a comment to the pull request regarding the success or failure of the Dockerfile static analysis codebuild."
+      Handler: "index.handler"
+      Environment:
+        Variables:
+          PREFIX: !Ref ResourceName
+          CODEBUILDDFPROJECT: !Ref CodeBuildDFProject
+      Role: !GetAtt 'LambdaPRCommentRole.Arn'
+      Code:
+        ZipFile: |
+          from __future__ import print_function
+          import boto3
+          import os
+          import json
+
+          codecommit_client = boto3.client('codecommit')
+          ssm = boto3.client('ssm')
+          dfproject = os.environ['CODEBUILDDFPROJECT']
+
+          def handler(event, context):
+
+            # Log event
+            print(json.dumps(event))
+
+            # Get PR Details
+            pull_request_id = ssm.get_parameter(
+              Name='prid'
+            )
+
+            repository_name = ssm.get_parameter(
+              Name='repo'
+            )
+
+            source_commit = ssm.get_parameter(
+              Name='sourceCommit'
+            )
+
+            destination_commit = ssm.get_parameter(
+              Name='destinationCommit'
+            )
+
+            build_results = ssm.get_parameter(
+              Name='codebuild-dockerfile-results'
+            )
+
+            s3_prefix = 's3-{0}'.format(event['region']) if event['region'] != 'us-east-1' else 's3'
+            if event['detail']['project-name'] in [dfproject]:
+              build_results = json.loads(build_results['Parameter']['Value'])
+              # Add Errors
+              errors = '## Static Analysis - Dockerfile Configuration (using Hadolint)\n'
+              if not build_results:
+                errors = errors + 'No Misconfigurations!'
+              else:
+                for i in build_results:
+                  errors = errors + '* **%s** (%s): %s \n' % (i['code'], i['level'], i['message'])
+              for phase in event['detail']['additional-information']['phases']:
+                if phase.get('phase-status') == 'FAILED':
+                    badge = 'https://{0}.amazonaws.com/sa-security-specialist-workshops-{1}/devsecops/containers/badges/failing.svg'.format(s3_prefix, event['region'])
+                    content = '![Failing]({0} "Failing") - See the [Logs]({1})\n'.format(badge, event['detail']['additional-information']['logs']['deep-link'])
+                    content = content + errors
+                    break
+                else:
+                    badge = 'https://{0}.amazonaws.com/sa-security-specialist-workshops-{1}/devsecops/containers/badges/passing.svg'.format(s3_prefix, event['region'])
+                    content = '![Passing]({0} "Passing") - See the [Logs]({1})\n'.format(badge, event['detail']['additional-information']['logs']['deep-link'])
+                    content = content + errors
+
+            codecommit_client.post_comment_for_pull_request(
+              pullRequestId = pull_request_id['Parameter']['Value'],
+              repositoryName = repository_name['Parameter']['Value'],
+              beforeCommitId = source_commit['Parameter']['Value'],
+              afterCommitId = destination_commit['Parameter']['Value'],
+              content = content
+            )
+
+            ssm.delete_parameter(
+              Name='codebuild-dockerfile-results'
+            )
+      Runtime: "python2.7"
+      Timeout: "35"
+      MemorySize: 128
+
+  PermissionForEventsToInvokeLambdaCBDF:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Join [ '-', [ !Ref ResourceName, 'codebuild-dockerfile'  ] ]
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt CBDFEventRule.Arn
+
+  ### Feedback Loop - Secrets Scanning CodeBuild
+
+  CBSCEventRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: !Join [ '-', [ !Ref ResourceName, 'codebuild-secrets'  ] ]
+      Description: "Triggers when builds fail/pass in CodeBuild for the secrets analysis."
+      EventPattern:
+        source:
+          - "aws.codebuild"
+        detail-type:
+          - "CodeBuild Build State Change"
+        detail:
+          build-status:
+            - "FAILED"
+            - "SUCCEEDED"
+          project-name:
+            - !Ref CodeBuildSecretsProject
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt LambdaCBSC.Arn
+          Id: !Join [ '-', [ !Ref ResourceName, 'codebuild-secrets'  ] ]
+
+  LambdaCBSC: 
+    Type: "AWS::Lambda::Function"
+    Properties: 
+      FunctionName: !Join [ '-', [ !Ref ResourceName, 'codebuild-secrets'  ] ]
+      Description: "Adds a comment to the pull request regarding the success or failure of the secrets analysis codebuild."
+      Handler: "index.handler"
+      Environment:
+        Variables:
+          PREFIX: !Ref ResourceName
+          CODEBUILDSCPROJECT: !Ref CodeBuildSecretsProject
+      Role: !GetAtt 'LambdaPRCommentRole.Arn'
+      Code:
+        ZipFile: |
+          from __future__ import print_function
+          import boto3
+          import os
+          import json
+
+          codecommit_client = boto3.client('codecommit')
+          ssm = boto3.client('ssm')
+          scproject = os.environ['CODEBUILDSCPROJECT']
+
+          def handler(event, context):
+
+            # Log event
+            print(json.dumps(event))
+
+            # Get PR Details
+            pull_request_id = ssm.get_parameter(
+              Name='prid'
+            )
+
+            repository_name = ssm.get_parameter(
+              Name='repo'
+            )
+
+            source_commit = ssm.get_parameter(
+              Name='sourceCommit'
+            )
+
+            destination_commit = ssm.get_parameter(
+              Name='destinationCommit'
+            )
+
+            s3_prefix = 's3-{0}'.format(event['region']) if event['region'] != 'us-east-1' else 's3'
+            if event['detail']['project-name'] in [scproject]:
+              
+              # Add Errors
+              errors = '## Static Analysis - Secrets Scanning  (using truffleHog)\n'
+              if event['detail']['build-status'] == 'SUCCEEDED':
+                errors = errors + 'No secrets found!'
+              else:
+                errors = errors + 'Secrets found! Please review the logs and remove any sensitive data.'
+              for phase in event['detail']['additional-information']['phases']:
+                if phase.get('phase-status') == 'FAILED':
+                    badge = 'https://{0}.amazonaws.com/sa-security-specialist-workshops-{1}/devsecops/containers/badges/failing.svg'.format(s3_prefix, event['region'])
+                    content = '![Failing]({0} "Failing") - See the [Logs]({1})\n'.format(badge, event['detail']['additional-information']['logs']['deep-link'])
+                    content = content + errors
+                    break
+                else:
+                    badge = 'https://{0}.amazonaws.com/sa-security-specialist-workshops-{1}/devsecops/containers/badges/passing.svg'.format(s3_prefix, event['region'])
+                    content = '![Passing]({0} "Passing") - See the [Logs]({1})\n'.format(badge, event['detail']['additional-information']['logs']['deep-link'])
+                    content = content + errors
+
+            codecommit_client.post_comment_for_pull_request(
+              pullRequestId = pull_request_id['Parameter']['Value'],
+              repositoryName = repository_name['Parameter']['Value'],
+              beforeCommitId = source_commit['Parameter']['Value'],
+              afterCommitId = destination_commit['Parameter']['Value'],
+              content = content
+            )
+      Runtime: "python2.7"
+      Timeout: "35"
+      MemorySize: 128
+
+  PermissionForEventsToInvokeLambdaCBSC:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Join [ '-', [ !Ref ResourceName, 'codebuild-secrets'  ] ]
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt CBSCEventRule.Arn
+  
+  ### Feedback Loop - Vunerability Scanning CodeBuild
+
+  CBVCEventRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: !Join [ '-', [ !Ref ResourceName, 'codebuild-vulnerability'  ] ]
+      Description: "Triggers when builds fail/pass in CodeBuild for the vulnerability scanning."
+      EventPattern:
+        source:
+          - "aws.codebuild"
+        detail-type:
+          - "CodeBuild Build State Change"
+        detail:
+          build-status:
+            - "FAILED"
+            - "SUCCEEDED"
+          project-name:
+            - !Ref CodeBuildVulnProject
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt LambdaCBVC.Arn
+          Id: !Join [ '-', [ !Ref ResourceName, 'codebuild-vulnerability'  ] ]
+
+  LambdaCBVC: 
+    Type: "AWS::Lambda::Function"
+    Properties: 
+      FunctionName: !Join [ '-', [ !Ref ResourceName, 'codebuild-vulnerability'  ] ]
+      Description: "Adds a comment to the pull request regarding the success or failure of the vulnerability scanning codebuild."
+      Handler: "index.handler"
+      Environment:
+        Variables:
+          PREFIX: !Ref ResourceName
+          CODEBUILDVCPROJECT: !Ref CodeBuildVulnProject
+      Role: !GetAtt 'LambdaPRCommentRole.Arn'
+      Code:
+        ZipFile: |
+          from __future__ import print_function
+          import boto3
+          import os
+          import json
+
+          codecommit_client = boto3.client('codecommit')
+          ssm = boto3.client('ssm')
+          vcproject = os.environ['CODEBUILDVCPROJECT']
+
+          def handler(event, context):
+
+            # Log event
+            print(json.dumps(event))
+
+            # Get PR Details
+            pull_request_id = ssm.get_parameter(
+              Name='prid'
+            )
+
+            repository_name = ssm.get_parameter(
+              Name='repo'
+            )
+
+            source_commit = ssm.get_parameter(
+              Name='sourceCommit'
+            )
+
+            destination_commit = ssm.get_parameter(
+              Name='destinationCommit'
+            )
+
+            s3_prefix = 's3-{0}'.format(event['region']) if event['region'] != 'us-east-1' else 's3'
+            sec_hub = 'https://%s.console.aws.amazon.com/securityhub/' % event['region'] 
+            if event['detail']['project-name'] in [vcproject]:
+              # Add Errors
+              errors = '## Vulnerability Scanning (using Anchore)\n'
+              if event['detail']['build-status'] == 'SUCCEEDED':
+                errors = errors + 'No vulnerabilities that meet or exceed the threshold!  Please manage all other vulnerabilities in [Security Hub](%s).' % sec_hub
+              else:
+                errors = errors + 'Findings found! Please review the logs and fix the vulnerabilities.'
+              for phase in event['detail']['additional-information']['phases']:
+                if phase.get('phase-status') == 'FAILED':
+                    badge = 'https://{0}.amazonaws.com/sa-security-specialist-workshops-{1}/devsecops/containers/badges/failing.svg'.format(s3_prefix, event['region'])
+                    content = '![Failing]({0} "Failing") - See the [Logs]({1})\n'.format(badge, event['detail']['additional-information']['logs']['deep-link'])
+                    content = content + errors
+                    break
+                else:
+                    badge = 'https://{0}.amazonaws.com/sa-security-specialist-workshops-{1}/devsecops/containers/badges/passing.svg'.format(s3_prefix, event['region'])
+                    content = '![Passing]({0} "Passing") - See the [Logs]({1})\n'.format(badge, event['detail']['additional-information']['logs']['deep-link'])
+                    content = content + errors
+
+            codecommit_client.post_comment_for_pull_request(
+              pullRequestId = pull_request_id['Parameter']['Value'],
+              repositoryName = repository_name['Parameter']['Value'],
+              beforeCommitId = source_commit['Parameter']['Value'],
+              afterCommitId = destination_commit['Parameter']['Value'],
+              content = content
+            )
+      Runtime: "python2.7"
+      Timeout: "35"
+      MemorySize: 128
+
+  PermissionForEventsToInvokeLambdaCBVC:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Join [ '-', [ !Ref ResourceName, 'codebuild-vulnerability'  ] ]
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt CBVCEventRule.Arn
+  
+  ### Feedback Loop - Publish Image
+
+  CBPUEventRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: !Join [ '-', [ !Ref ResourceName, 'codebuild-publish'  ] ]
+      Description: "Triggers when builds fail/pass in CodeBuild for the Build and Push Stage."
+      EventPattern:
+        source:
+          - "aws.codebuild"
+        detail-type:
+          - "CodeBuild Build State Change"
+        detail:
+          build-status:
+            - "FAILED"
+            - "SUCCEEDED"
+          project-name:
+            - !Ref CodeBuildPublishProject
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt LambdaCBPU.Arn
+          Id: !Join [ '-', [ !Ref ResourceName, 'codebuild-publish'  ] ]
+
+  LambdaCBPU: 
+    Type: "AWS::Lambda::Function"
+    Properties: 
+      FunctionName: !Join [ '-', [ !Ref ResourceName, 'codebuild-publish'  ] ]
+      Description: "Adds a comment to the pull request regarding the success or failure of the publish codebuild project."
+      Handler: "index.handler"
+      Environment:
+        Variables:
+          PREFIX: !Ref ResourceName
+          CODEBUILDPUPROJECT: !Ref CodeBuildPublishProject
+      Role: !GetAtt 'LambdaPRCommentRole.Arn'
+      Code:
+        ZipFile: |
+          from __future__ import print_function
+          import boto3
+          import os
+          import json
+
+          codecommit_client = boto3.client('codecommit')
+          ssm = boto3.client('ssm')
+          puproject = os.environ['CODEBUILDPUPROJECT']
+
+          def handler(event, context):
+
+            # Log event
+            print(json.dumps(event))
+
+            # Get PR Details
+            pull_request_id = ssm.get_parameter(
+              Name='prid'
+            )
+
+            repository_name = ssm.get_parameter(
+              Name='repo'
+            )
+
+            source_commit = ssm.get_parameter(
+              Name='sourceCommit'
+            )
+
+            destination_commit = ssm.get_parameter(
+              Name='destinationCommit'
+            )
+
+            s3_prefix = 's3-{0}'.format(event['region']) if event['region'] != 'us-east-1' else 's3'
+            sec_hub = 'https://%s.console.aws.amazon.com/securityhub/' % event['region'] 
+            if event['detail']['project-name'] in [puproject]:
+              errors = '## Image Build and Push\n'
+              if event['detail']['build-status'] == 'SUCCEEDED':
+                errors = errors + 'Image has successfully been published to the [AWS ECR repository](https://us-east-2.console.aws.amazon.com/ecr/repositories/container-devsecops-wksp-sample/).  The Pull Request has been merged and closed.'
+              else:
+                errors = errors + 'Image has failed to build.  Please review the logs'
+              for phase in event['detail']['additional-information']['phases']:
+                if phase.get('phase-status') == 'FAILED':
+                    badge = 'https://{0}.amazonaws.com/sa-security-specialist-workshops-{1}/devsecops/containers/badges/failing.svg'.format(s3_prefix, event['region'])
+                    content = '![Failing]({0} "Failing") - See the [Logs]({1})\n'.format(badge, event['detail']['additional-information']['logs']['deep-link'])
+                    content = content + errors
+                    break
+                else:
+                    badge = 'https://{0}.amazonaws.com/sa-security-specialist-workshops-{1}/devsecops/containers/badges/passing.svg'.format(s3_prefix, event['region'])
+                    content = '![Passing]({0} "Passing") - See the [Logs]({1})\n'.format(badge, event['detail']['additional-information']['logs']['deep-link'])
+                    content = content + errors
+
+            codecommit_client.post_comment_for_pull_request(
+              pullRequestId = pull_request_id['Parameter']['Value'],
+              repositoryName = repository_name['Parameter']['Value'],
+              beforeCommitId = source_commit['Parameter']['Value'],
+              afterCommitId = destination_commit['Parameter']['Value'],
+              content = content
+            )
+
+            # Merge Pull Request
+            codecommit_client.merge_pull_request_by_fast_forward(
+              pullRequestId=pull_request_id['Parameter']['Value'],
+              repositoryName=repository_name['Parameter']['Value']
+            )
+
+            # Delete pipeline parameters
+            ssm.delete_parameters(
+              Names=[
+                  'prid',
+                  'repo',
+                  'sourceCommit',
+                  'destinationCommit'
+              ]
+            )
+      Runtime: "python2.7"
+      Timeout: "35"
+      MemorySize: 128
+
+  PermissionForEventsToInvokeLambdaCBPU:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Join [ '-', [ !Ref ResourceName, 'codebuild-publish'  ] ]
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt CBPUEventRule.Arn
+
+  ################### Pipeline ###################
+
+  ### CodePipeline - Artifact Bucket
+  PipelineBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: 'AES256'
+      BucketName: !Join [ '-', [ !Ref ResourceName, !Ref "AWS::AccountId", !Ref "AWS::Region", 'artifacts'  ] ]
+
+  ### CodePipeline - Service Role
+  CodePipelineRole: 
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: !Join [ '-', [ !Ref ResourceName, 'codepipeline', 'service'  ] ]
+      AssumeRolePolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - codepipeline.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Path: /
+      Policies: 
+        - 
+          PolicyName: ServicePolicy
+          PolicyDocument: 
+            Version: 2012-10-17
+            Statement: 
+              - 
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - 
+                Effect: Allow
+                Action:
+                  - codecommit:*
+                Resource: '*'
+              -
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListObject
+                Resource: [!Join [ '', [ !GetAtt 'PipelineBucket.Arn', '/*'  ] ], !GetAtt 'PipelineBucket.Arn' ]
+              -
+                Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource: '*'
+  
+  ### CodePipeline
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location: !Ref PipelineBucket
+      RoleArn: !GetAtt 'CodePipelineRole.Arn'
+      Name: !Join [ '-', [ !Ref ResourceName, 'pipeline'  ] ]
+      Stages:
+        - Name: PullRequest
+          Actions:
+            - Name: AppSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: CodeCommit
+              OutputArtifacts:
+                - Name: "AppSource"
+              Configuration:
+                BranchName: "development"
+                RepositoryName: !Join [ '-', [ !Ref ResourceName, 'app'  ] ]
+                PollForSourceChanges: false
+              RunOrder: 1
+            - Name: ConfigSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: CodeCommit
+              OutputArtifacts:
+                - Name: "ConfigSource"
+              Configuration:
+                BranchName: "master"
+                RepositoryName: !Join [ '-', [ !Ref ResourceName, 'config'  ] ]
+                PollForSourceChanges: false
+              RunOrder: 1
+        - Name: 'StaticAnalysis-DockerfileConfiguration'
+          Actions:
+            - Name: Validation
+              ActionTypeId:
+                  Category: Build
+                  Owner: AWS
+                  Version: 1
+                  Provider: CodeBuild
+              OutputArtifacts:
+                - Name: "DFAppSourceOutput"
+                - Name: "DFConfigSourceOutput"
+              InputArtifacts:
+                - Name: "AppSource"
+                - Name: "ConfigSource"
+              Configuration:
+                  ProjectName: !Ref CodeBuildDFProject
+                  PrimarySource: "ConfigSource"
+              RunOrder: 1
+        - Name: 'StaticAnalysis-Secrets'
+          Actions:
+            - Name: Validation
+              ActionTypeId:
+                  Category: Build
+                  Owner: AWS
+                  Version: 1
+                  Provider: CodeBuild
+              OutputArtifacts:
+                - Name: "SecretsAppSourceOutput"
+                - Name: "SecretsConfigSourceOutput"
+              InputArtifacts:
+                - Name: "AppSource"
+                - Name: "ConfigSource"
+              Configuration:
+                  ProjectName: !Ref CodeBuildSecretsProject
+                  PrimarySource: "ConfigSource"
+              RunOrder: 1
+        - Name: 'VulnerabilityAnalysis'
+          Actions:
+            - Name: VulnerabilityScan
+              ActionTypeId:
+                  Category: Build
+                  Owner: AWS
+                  Version: 1
+                  Provider: CodeBuild
+              OutputArtifacts:
+                - Name: "VulnAppSourceOutput"
+                - Name: "VulnConfigSourceOutput"
+              InputArtifacts:
+                - Name: "AppSource"
+                - Name: "ConfigSource"
+              Configuration:
+                  ProjectName: !Ref CodeBuildVulnProject
+                  PrimarySource: "ConfigSource"
+              RunOrder: 1
+        - Name: 'PublishImage'
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                  Category: Build
+                  Owner: AWS
+                  Version: 1
+                  Provider: CodeBuild
+              OutputArtifacts:
+                - Name: "PushAppSourceOutput"
+                - Name: "PushConfigSourceOutput"
+              InputArtifacts:
+                - Name: "AppSource"
+                - Name: "ConfigSource"
+              Configuration:
+                  ProjectName: !Ref CodeBuildPublishProject
+                  PrimarySource: "ConfigSource"
+              RunOrder: 1
+
+  ################### CodeBuild Projects ###################
+
+  #### CodeBuild Dockerfile Analysis ####
+
+  ### CodeBuild Service Role
+  CodeBuildRole: 
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: !Join [ '-', [ !Ref ResourceName, 'codebuild', 'service'  ] ]
+      AssumeRolePolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - codebuild.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Path: /
+      Policies: 
+        - 
+          PolicyName: ServicePolicy
+          PolicyDocument: 
+            Version: 2012-10-17
+            Statement: 
+              - 
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - 
+                Effect: Allow
+                Action:
+                  - codecommit:*
+                  - ssm:DescribeParameters
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:PutParameter
+                Resource: '*'
+              -
+                Effect: Allow
+                Action:
+                  - ecr:*
+                Resource: '*'
+              -
+                Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - lambda:InvokeAsync
+                Resource: !ImportValue 'AnchoreFargateStack:SendFindingsToSecurityHub'
+              -
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListObject
+                Resource: [!Join [ '', [ !GetAtt 'PipelineBucket.Arn', '/*'  ] ], !GetAtt 'PipelineBucket.Arn' ]
+
+  ### CodeBuild Project - Dockerfile Analysis
+  CodeBuildDFProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: 'BUILD_GENERAL1_SMALL'
+        Image: aws/codebuild/docker:18.09.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: AWS_ACCOUNT_ID
+            Type: PLAINTEXT
+            Value: !Ref "AWS::AccountId"
+      Name: !Join [ '-', [ !Ref ResourceName, 'build', 'dockerfile'  ] ]
+      ServiceRole: !GetAtt 'CodeBuildRole.Arn'
+      Source: 
+        Type: CODEPIPELINE
+        BuildSpec: buildspec_dockerfile.yml
+
+  #### CodeBuild Project - Secrets Analysis ####
+  CodeBuildSecretsProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: 'BUILD_GENERAL1_SMALL'
+        Image: aws/codebuild/docker:18.09.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: AWS_ACCOUNT_ID
+            Type: PLAINTEXT
+            Value: !Ref "AWS::AccountId"
+          - Name: APP_REPO_URL
+            Type: PLAINTEXT
+            Value: !GetAtt AppRepository.CloneUrlHttp
+      Name: !Join [ '-', [ !Ref ResourceName, 'build', 'secrets'  ] ]
+      ServiceRole: !GetAtt 'CodeBuildRole.Arn'
+      Source: 
+        Type: CODEPIPELINE
+        BuildSpec: buildspec_secrets.yml
+
+  #### CodeBuild Project - Vulnerability Scanning ####
+  CodeBuildVulnProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/docker:18.09.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: FAIL_WHEN
+            Type: PLAINTEXT
+            Value: !Ref FailWhen
+          - Name: AWS_ACCOUNT_ID
+            Type: PLAINTEXT
+            Value: !Ref AWS::AccountId
+          - Name: IMAGE_REPO_NAME
+            Type: PLAINTEXT
+            Value: !Ref ScratchRepository
+          - Name: IMAGE_ARN
+            Type: PLAINTEXT
+            Value: !GetAtt ECRRepository.Arn
+          - Name: FUNCTION_ARN
+            Value: !ImportValue 'AnchoreFargateStack:SendFindingsToSecurityHub'
+          - Name: ANCHORE_CLI_URL
+            Type: PLAINTEXT
+            Value: !Join
+              - '/'
+              - - http:/
+                - !ImportValue 'AnchoreFargateStack:AnchoreLB'
+                - v1
+          - Name: ANCHORE_CLI_USER
+            Type: PLAINTEXT
+            Value: admin
+          - Name: ANCHORE_CLI_PASS
+            Type: PLAINTEXT
+            Value:
+              !Join
+                  - ""
+                  - - "{{resolve:secretsmanager:"
+                    - !ImportValue 'AnchoreFargateStack:AnchoreAdminPasswordArn'
+                    - :SecretString:::}}
+      Name: !Join [ '-', [ !Ref ResourceName, 'scan', 'image'  ] ]
+      ServiceRole: !GetAtt 'CodeBuildRole.Arn'
+      Source: 
+        Type: CODEPIPELINE
+        BuildSpec: buildspec_vuln.yml
+      
+  #### CodeBuild Project - Publish Image ####
+
+  CodeBuildPublishProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: 'BUILD_GENERAL1_SMALL'
+        Image: aws/codebuild/docker:18.09.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: AWS_ACCOUNT_ID
+            Type: PLAINTEXT
+            Value: !Ref "AWS::AccountId"
+          - Name: IMAGE_REPO_NAME
+            Type: PLAINTEXT
+            Value: !Join [ '-', [ !Ref ResourceName, 'sample'  ] ]
+      Name: !Join [ '-', [ !Ref ResourceName, 'publish'  ] ]
+      ServiceRole: !GetAtt 'CodeBuildRole.Arn'
+      Source: 
+        Type: CODEPIPELINE
+        BuildSpec: buildspec_push.yml
+
+Outputs: {}

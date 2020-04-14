@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Primary CF Stack with Lambda and IAM Role for Lambda
+#-------------------------------------------------------------------------------
+Resources:
+  AMIInfoFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: !Sub |
+          import json
+          import boto3
+          from botocore.vendored import requests
+          ec2_client = boto3.client('ec2')
+          def lambda_handler(event, context):
+              # immediate response to CF Stack DELETE Action
+              responseStatus = 'SUCCESS'
+              responseData = {}
+              if event['RequestType'] == 'Delete':
+                  sendResponse(event, context, responseStatus, responseData)
+              else:
+                  # map OS Names from CloudFormation template and AWS Marketplace AMIs OS Names
+                  os_mapping = {
+                      "Windows Server 2008 SP2 English 32-bit" : "Windows_Server-2008-SP2-English-32Bit-Base-*",
+                      "Windows Server 2008 SP2 English 64-bit": "Windows_Server-2008-SP2-English-64Bit-Base-*",
+                      "Windows Server 2008 R2 English 64-bit": "Windows_Server-2008-R2_SP1-English-64Bit-Base-*",
+                      "Windows Server 2012 RTM English 64-bit": "Windows_Server-2012-RTM-English-64Bit-Base-*",
+                      "Windows Server 2012 R2 English 64-bit": "Windows_Server-2012-R2_RTM-English-64Bit-Base-*",
+                      "Windows Server 2016 Base English 64-bit (x86)": "Windows_Server-2016-English-Full-Base-*",
+                      "Windows Server 2019 Base English 64-bit (x86)": "Windows_Server-2019-English-Full-Base-*"
+                      }
+                  # find the most recent AMI version
+                  for key,val in os_mapping.items():
+                      if event['ResourceProperties']['OSName'] == key:
+                          ami_response = ec2_client.describe_images(Filters=[{'Name': 'name', 'Values': [val]}],Owners=['amazon'])
+                          if not ami_response['Images']:
+                              print(f'AMIs for {val} have not been found on AWS Marketplace.')
+                              responseStatus = 'FAILED'
+                              responseData = {'Failed': f'AMIs for {val} have not been found on AWS Marketplace.'}
+                              sendResponse(event, context, responseStatus, responseData)
+                          else:
+                              latest_ami_id = ''
+                              latest_ami_name = ''
+                              latest_ami_creation_date = ''
+                              for ami in ami_response['Images']:
+                                  aim_id = ami['ImageId']
+                                  ami_name = ami['Name']
+                                  ami_creation_date = ami['CreationDate']
+                                  if ami_creation_date > latest_ami_creation_date:
+                                      latest_ami_creation_date = ami_creation_date
+                                      latest_ami_name = ami_name
+                                      latest_ami_id = aim_id
+                              print(f'The latest AMI is {latest_ami_id} {latest_ami_name} with creation date {latest_ami_creation_date}')
+                              # Response to CF Stack CREATE or UPDATE Action
+                              responseData["Id"] = latest_ami_id
+                              sendResponse(event, context, responseStatus, responseData)
+          # send response to the pre-signed S3 URL
+          def sendResponse(event, context, responseStatus, responseData):
+              responseBody = {'Status': responseStatus,
+                              'Reason': 'See the details in CloudWatch Log Stream: ' + context.log_stream_name,
+                              'PhysicalResourceId': context.log_stream_name,
+                              'StackId': event['StackId'],
+                              'RequestId': event['RequestId'],
+                              'LogicalResourceId': event['LogicalResourceId'],
+                              'Data': responseData}
+              print ('RESPONSE BODY:\n' + json.dumps(responseBody))
+              try:
+                  req = requests.put(event['ResponseURL'], data=json.dumps(responseBody))
+                  if req.status_code != 200:
+                      print(req.text)
+                      raise Exception('Recieved non 200 response while sending response to CF Stack.')
+                  return
+              except requests.exceptions.RequestException as e:
+                  print(e)
+                  raise
+          if __name__ == '__main__':
+              lambda_handler('event', 'handler')
+      Handler: !Join
+        - ''
+        - - index
+          - .lambda_handler
+      Role: !GetAtt
+        - LambdaExecutionRole
+        - Arn
+      Runtime: python3.7
+      Timeout: '30'
+
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+              - Effect: Allow
+                Action:
+                  - 'ec2:DescribeImages'
+                Resource: '*'
+#-------------------------------------------------------------------------------
+Outputs:
+  LambdaARN:
+    Description: LambdaARN
+    Value: !GetAtt AMIInfoFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-LambdaARN"

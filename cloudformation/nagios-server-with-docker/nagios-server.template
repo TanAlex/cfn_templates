@@ -1,0 +1,242 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Conditions:
+  SSHKeySpecified:
+    Fn::Not:
+    - Fn::Equals:
+      - Ref: KeyName
+      - ''
+  UseUpdatePolicy:
+    Fn::Equals:
+    - Ref: RollingUpdate
+    - 'true'
+Description: Insight Nagios Server v 1.0.0
+Parameters:
+  AppSubnets:
+    Description: Subnets in which the app servers will be deployed.
+    Type: List<AWS::EC2::Subnet::Id>
+  ELBNames:
+    Description: ELB names to associate with the app ASG.
+    Type: CommaDelimitedList
+  EnvironmentName:
+    AllowedValues:
+    - euprod1
+    - naprod1
+    - auprod1
+    Description: Environment name that this customer is in
+    Type: String
+  HealthCheckGracePeriod:
+    Default: '2400'
+    Description: The length of time in seconds after a new EC2 instance comes into
+      service that Auto Scaling starts checking its health.
+    Type: Number
+  HealthCheckInterval:
+    Default: '10'
+    Description: Interval in seconds which the health check is executed
+    Type: Number
+  HealthCheckTarget:
+    Default: HTTP:80
+    Description: "(Optional) Health check target for ELB. Leave it blank to disable
+      health check."
+    Type: String
+  HealthCheckType:
+    AllowedValues:
+    - ELB
+    - EC2
+    Default: EC2
+    Description: The type of AutoScaleGroup health check to perform [ELB|EC2]
+    Type: String
+  InstanceDedicatedTenancy:
+    AllowedValues:
+    - 'true'
+    - 'false'
+    Default: 'false'
+    Description: Do you want the instance on dedicated hardware
+    Type: String
+  InstanceProfile:
+    Description: InstanceProfile to use
+    Type: String
+  InstanceRootSize:
+    Default: '80'
+    Description: Size of the root volume for the Ec2 Instance
+    MaxValue: '200'
+    MinValue: '8'
+    Type: Number
+  InstanceType:
+    AllowedValues:
+    - c3.2xlarge
+    - c3.4xlarge
+    - c3.8xlarge
+    - c3.large
+    - c3.xlarge
+    - c4.2xlarge
+    - c4.4xlarge
+    - c4.8xlarge
+    - c4.large
+    - c4.xlarge
+    - d2.2xlarge
+    - d2.4xlarge
+    - d2.8xlarge
+    - d2.xlarge
+    - g2.2xlarge
+    - g2.8xlarge
+    - i2.2xlarge
+    - i2.4xlarge
+    - i2.8xlarge
+    - i2.xlarge
+    - t3.large
+    - t3.medium
+    - m3.2xlarge
+    - m3.large
+    - m3.medium
+    - m3.xlarge
+    - m4.10xlarge
+    - m4.2xlarge
+    - m4.4xlarge
+    - m4.large
+    - m4.xlarge
+    - m5.large
+    - r3.2xlarge
+    - r3.4xlarge
+    - r3.8xlarge
+    - r3.large
+    - r3.xlarge
+    - r4.large
+    - r4.xlarge
+    - r4.2xlarge
+    - t2.large
+    - t2.medium
+    - t2.micro
+    - t2.small
+    Default: t3.large
+    Description: Instance type for app servers.
+    Type: String
+  InternalServerSecurityGroupId:
+    Description: The client security group used for Internal -> Nat Communication
+    Type: AWS::EC2::SecurityGroup::Id
+  VpnSecurityGroupId:
+    Description: The VPN security group id that covers internal servers
+    Type: AWS::EC2::SecurityGroup::Id
+  KeyName:
+    Description: Name of an existing EC2-VPC KeyPair
+    Type: String
+  MaximumCount:
+    Default: '1'
+    Description: The Instance count for the Autoscalinggroup
+    Type: String
+  MinimumCount:
+    Default: '1'
+    Description: The Instance count for the Autoscalinggroup
+    Type: String
+  RollingUpdate:
+    AllowedValues:
+    - 'true'
+    - 'false'
+    Default: 'false'
+    Description: ''
+    Type: String
+  ServerAMI:
+    Default: ''
+    Description: AMI ID for app instances (leave blank to  use the "AppOS" parameter)
+    Type: String
+Resources:
+  AppServerASG:
+    Properties:
+      HealthCheckGracePeriod:
+        Ref: HealthCheckGracePeriod
+      HealthCheckType:
+        Ref: HealthCheckType
+      LaunchConfigurationName:
+        Ref: LaunchServer
+      LoadBalancerNames:
+        Ref: ELBNames
+      MaxSize:
+        Ref: MaximumCount
+      MinSize:
+        Ref: MinimumCount
+      Tags:
+      - Key: Name
+        PropagateAtLaunch: true
+        Value: "Nagios-Server"
+      - Key: environment
+        PropagateAtLaunch: true
+        Value:
+          Ref: EnvironmentName
+      VPCZoneIdentifier:
+        Ref: AppSubnets
+    Type: AWS::AutoScaling::AutoScalingGroup
+  LaunchServer:
+    Properties:
+      BlockDeviceMappings:
+      - DeviceName: "/dev/xvda"
+        Ebs:
+          DeleteOnTermination: 'true'
+          VolumeSize: 50
+      IamInstanceProfile:
+        Ref: InstanceProfile
+      ImageId:
+        Ref: ServerAMI
+      InstanceType:
+        Ref: InstanceType
+      KeyName:
+        Fn::If:
+        - SSHKeySpecified
+        - Ref: KeyName
+        - Ref: AWS::NoValue
+      SecurityGroups:
+      - Ref: InternalServerSecurityGroupId
+      - Ref: VpnSecurityGroupId
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # overwrite /etc/resolv.conf, the current one use DHCP option to use local windows AD server 
+          cp /etc/resolv.conf /etc/resolv.conf.save
+          echo "nameserver 8.8.8.8" > /etc/resolv.conf
+
+          # Update the packages on your instance
+          yum update -y
+
+          # Install Docker
+          yum install docker -y
+
+          # Add the ec2-user to the docker group so you can execute Docker commands without using sudo.
+          usermod -a -G docker ec2-user
+
+          # Start the Docker Service
+          service docker start
+
+          # Backup htpasswd.users and generate new one
+          # cp /opt/nagios/etc/htpasswd.users /opt/nagios/etc/htpasswd.users.save
+
+          mkdir /opt/nagios
+          mkdir /opt/nagios/etc
+          mkdir /opt/nagios/var
+          mkdir /opt/nagiosgraph
+          mkdir /opt/nagiosgraph/etc
+          mkdir /opt/nagiosgraph/var
+          mkdir /opt/Custom-Nagios-Plugins
+
+          # Download nagios/etc from S3
+          cd /opt/nagios
+          aws s3 cp s3://hubble-config-naprod1/configs-nagios-server/nagios.config.zip nagios.config.zip
+          unzip nagios.config.zip
+
+          cd /
+          docker run --name nagios4 -d\
+            -v /opt/nagios/etc/:/opt/nagios/etc/ \
+            -v /opt/nagios/var:/opt/nagios/var/ \
+            -v /opt/Custom-Nagios-Plugins:/opt/Custom-Nagios-Plugins \
+            -v /opt/nagiosgraph/var:/opt/nagiosgraph/var \
+            -v /opt/nagiosgraph/etc:/opt/nagiosgraph/etc \
+            --restart unless-stopped \
+            -p 0.0.0.0:80:80 jasonrivers/nagios:latest
+    Type: AWS::AutoScaling::LaunchConfiguration
+Outputs:
+  AutoScalingGroupID:
+    Description: The ID of the AutoScalingGroup
+    Value:
+      Ref: AppServerASG
+  AppServerASG:
+    Description: NagiosServer ASG name
+    Value:
+      Ref: AppServerASG

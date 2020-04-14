@@ -1,0 +1,39 @@
+namespace: ${namespace}
+stacker_bucket: ${namespace}-${region}-2
+
+sys_path: ../../stacker/modules
+
+
+common_parameters: &common_parameters
+  CustomerName: ${customer}
+  EnvironmentName: ${environment}
+  Namespace: ${namespace}
+
+
+mappings:
+  Accounts:  # list of account specific details
+    014839816928:
+      ssoRole: arn:aws:iam::014839816928:role/onica-sso-OnicaSsoRole-40VBTELR309O
+    292623438999:
+      ssoRole: arn:aws:iam::292623438999:role/onica-sso-OnicaSsoRole-UZA9TMGHO4J1
+    468515436775:
+      ssoRole: arn:aws:iam::468515436775:role/onica-sso-OnicaSsoRole-5DHSHZV2AJ23
+    363203128266:
+      ssoRole: arn:aws:iam::363203128266:role/onica-sso-OnicaSsoRole-ZQM32F2ASVLZ
+
+stacks:
+  users-and-roles:
+    class_path: dfs_iam.blueprints.dfs_users_and_roles.BlueprintClass
+    variables:
+      <<: *common_parameters
+      MasterAccountId: 014839816928
+      DefaultRegion: us-east-2
+      Users:
+        - name: bclavellina@diamondfulfillment.com
+          group: admin
+        - name: dschell@diamondfulfillment.com
+          group: admin
+        - name: jbyttow@diamondfulfillment.com
+          group: admin
+        - name: vpetrenko@diamondfulfillment.com
+          group: admin

@@ -1,0 +1,40 @@
+namespace: ${customer}-${environment}
+stacker_bucket: ''
+
+sys_path: ../../stacker/modules/ecs-cluster.cfn
+
+stacks:
+  redis-cw-logs:
+    class_path: ecs-blueprints.cw_log_group.CWLogGroup
+    variables:
+        LogGroupName: Redis
+  redis-ecs-task-definition:
+    enabled: true
+    class_path: ecs-blueprints.ecs_task.ECSTask
+    variables:
+      TaskName: Redis
+      ContainerName: Redis-Container
+      PortMappings:
+        - HostPort: 6379
+          ContainerPort: 6379
+          Protocol: tcp
+      Image: redis:latest
+  redis-ecs-service:
+    enabled: true
+    class_path: ecs-blueprints.ecs_service.ECSService
+    variables:
+      ServiceName: RedisService
+      ClusterName: ${rxref ecs-cluster::ClusterName}
+      DesiredCount: 1
+      TaskDefinitionARN: ${output redis-ecs-task-definition::TaskDefinitionARN}
+      Subnets: ${subnets}
+      SecurityGroups: ${rxref ecs-sgs::ECSInstanceSGName} 
+      ECSLoadBalancers:
+        - ContainerName: Redis-Container
+          ContainerPort: 6379
+          TargetGroupArn: ${rxref ecs-nlb::TargetGroup6379Arn}
+
+    
+
+  
+

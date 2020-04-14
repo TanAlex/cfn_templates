@@ -1,0 +1,40 @@
+namespace: ${customer}-${environment}
+stacker_bucket: ''
+
+sys_path: ../../stacker/modules/ecs-cluster.cfn
+
+stacks:
+  pdfgenerator-cw-logs:
+    class_path: ecs-blueprints.cw_log_group.CWLogGroup
+    variables:
+        LogGroupName: PDFGenerator
+  pdfgenerator-ecs-task-definition:
+    enabled: true
+    class_path: ecs-blueprints.ecs_task.ECSTask
+    variables:
+      TaskName: PDFGenerator
+      ContainerName: PDFGenerator-Container
+      PortMappings:
+        - HostPort: 5580
+          ContainerPort: 5580
+          Protocol: tcp
+      Image: 'insightsoftware/wkhtmltopdf:1.0.9'
+  pdfgenerator-ecs-service:
+    enabled: true
+    class_path: ecs-blueprints.ecs_service.ECSService
+    variables:
+      ServiceName: PDFGeneratorService
+      ClusterName: ${rxref ecs-cluster::ClusterName}
+      DesiredCount: 1
+      TaskDefinitionARN: ${output pdfgenerator-ecs-task-definition::TaskDefinitionARN}
+      Subnets: ${subnets}
+      SecurityGroups: ${rxref ecs-sgs::ECSInstanceSGName} 
+      ECSLoadBalancers:
+        - ContainerName: PDFGenerator-Container
+          ContainerPort: 5580
+          TargetGroupArn: ${rxref ecs-nlb::TargetGroup5580Arn}
+
+    
+
+  
+

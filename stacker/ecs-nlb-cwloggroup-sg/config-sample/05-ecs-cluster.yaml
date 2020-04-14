@@ -1,0 +1,93 @@
+
+namespace: ${customer}-${environment}
+stacker_bucket: ''
+
+
+lookups:
+  elbv2_ip: ecs-lookups.elbv2_ip.handle
+
+package_sources:
+  git:
+    - uri: git@bitbucket.org:corpinfo/msp-stacker-modules.git
+      branch: add-ecs-template
+      paths:
+        - ecs
+        - sns
+
+sys_path: ../../stacker/modules/ecs-cluster.cfn
+
+stacks:
+  ecs-sns:
+    class_path: sns_blueprints.sns_topic.SnsTopic
+    variables:
+      TopicName: '${customer}-ECSCluster-${environment}-${region}-asg-topic'
+
+  ecs-cluster:
+    enabled: true
+    class_path: blueprints.ecs.ECSCluster
+    variables:
+      ECSAMI: ${ami owners:amazon name_regex:amzn2-ami-ecs-hvm-.+-x86_64-ebs}  # amazon linux
+      ClusterInstanceType: t3.medium
+      ClusterPolicies: arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+      ClusterSecurityGroups: ${output ecs-sgs::ECSInstanceSGName},${internalsecuritygroup}
+      ClusterSubnets: ${subnets}
+      ClusterName: ECSCluster
+      ASGMinValue: 3
+      ASGMaxValue: 3
+      ASGDesiredValue: 3
+      ClusterVolumeSize: ${volumesize}
+      ClusterVolumeType: gp2
+      CustomerName: ${customer}
+      EnvironmentName: ${environment}
+      HealthCheckGracePeriod: 300
+      HealthCheckType: EC2
+      KeyName: ${sshkey}
+      MetricsCollection: ${metriccollection}
+      SnsTopic: ${output ecs-sns::TopicName}
+  
+
+  ecs-nlb:
+    enabled: true
+    class_path: ecs-blueprints.nlb.NetworkLoadBalancer
+    variables:
+      ApplicationName: ECSCluster
+      CustomerName: ${customer}
+      EnvironmentName: ${environment}
+      AppSubnets: ${subnets}
+      VpcId: ${vpc}
+      PortList:
+        - 5580
+        - 5672
+        - 15672
+        - 6379
+    
+  ecs-sgs:
+    requires: 
+      - ecs-nlb
+    enabled: true
+    class_path: ecs-blueprints.security_groups.ECSSecurityGroups
+    variables:
+      VpcId: ${vpc}
+      EnvironmentName: ${environment}
+      NlbIps: ${elbv2_ip ${rxref ecs-nlb::NlbLoadBalancerFullName}}
+      Ingress:
+        - FromPort: 5580
+          ToPort: 5580
+          Description: PDF generator access from internal servers
+          SourceSecurityGroupId: ${internalsecuritygroup}
+          IpProtocol: tcp
+        - FromPort: 5672
+          ToPort: 5672
+          Description: RabbitMQ access from internal servers
+          SourceSecurityGroupId: ${internalsecuritygroup}
+          IpProtocol: tcp
+        - FromPort: 15672
+          ToPort: 15672
+          Description: RabbitMQ Management console access from vpn
+          SourceSecurityGroupId: ${vpnsecuritygroup}
+          IpProtocol: tcp
+        - FromPort: 6379
+          ToPort: 6379
+          Description: Redis access from internal servers
+          SourceSecurityGroupId: ${internalsecuritygroup}
+          IpProtocol: tcp

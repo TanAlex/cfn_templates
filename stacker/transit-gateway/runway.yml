@@ -1,0 +1,47 @@
+---
+# See full syntax at https://github.com/onicagroup/runway
+ignore_git_branch: true
+
+account_ids: &account_ids
+  master: 517234242313
+  shared: 152876274589
+  dev: 668335946118
+  prod: 100618329711
+
+roles: &roles
+  master: arn:aws:iam::517234242313:role/service-role/AWSControlTowerAdmin
+  shared: arn:aws:iam::152876274589:role/AWSControlTowerExecution
+  dev: arn:aws:iam::668335946118:role/AWSControlTowerExecution
+  prod: arn:aws:iam::100618329711:role/AWSControlTowerExecution 
+
+deployments:
+  - modules:
+      - 00-account-setup
+    regions:
+      - us-west-2
+    account-id:
+      <<: *account_ids
+    assume-role:
+      <<: *roles
+  - modules:
+      - shared
+    regions:
+      - us-west-2
+    account-id:
+      <<: *account_ids
+    assume-role:
+      <<: *roles
+  - modules:
+      - dev
+    regions:
+      - us-west-2
+    account-id:
+      <<: *account_ids
+    assume-role:
+      <<: *roles
+  - modules:
+      - prod
+    regions:
+      - us-west-2
+    account-id:
+      <<: *account_ids

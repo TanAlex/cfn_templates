@@ -1,0 +1,49 @@
+namespace: ${customer}-${environment}
+stacker_bucket: ''
+
+
+
+sys_path: ../../stacker/modules/ecs-cluster.cfn
+
+stacks:
+  rabbitmq-cw-logs:
+    class_path: ecs-blueprints.cw_log_group.CWLogGroup
+    variables:
+        LogGroupName: RabbitMQ
+  rabbitmq-ecs-task-definition:
+    enabled: true
+    class_path: ecs-blueprints.ecs_task.ECSTask
+    variables:
+      TaskName: RabbitMQ
+      ContainerName: RabbitMQ-Container
+      PortMappings:
+        - HostPort: 5672
+          ContainerPort: 5672
+          Protocol: tcp
+        - HostPort: 15672
+          ContainerPort: 15672
+          Protocol: tcp
+      Image: rabbitmq:management
+  rabbitmq-ecs-service:
+    enabled: true
+    class_path: ecs-blueprints.ecs_service.ECSService
+    variables:
+      ServiceName: RabbitMQService
+      ClusterName: ${rxref ecs-cluster::ClusterName}
+      DesiredCount: 1
+      TaskDefinitionARN: ${output rabbitmq-ecs-task-definition::TaskDefinitionARN}
+      Subnets: ${subnets}
+      SecurityGroups: ${rxref ecs-sgs::ECSInstanceSGName} 
+      ECSLoadBalancers:
+        - ContainerName: RabbitMQ-Container
+          ContainerPort: 5672
+          TargetGroupArn: ${rxref ecs-nlb::TargetGroup5672Arn}
+        - ContainerName: RabbitMQ-Container
+          ContainerPort: 15672
+          TargetGroupArn: ${rxref ecs-nlb::TargetGroup15672Arn}
+
+
+    
+
+  
+

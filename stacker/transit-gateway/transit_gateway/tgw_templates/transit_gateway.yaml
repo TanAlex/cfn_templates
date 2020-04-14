@@ -1,0 +1,175 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Transit Gateway - 1.0.0
+
+Parameters:
+  ApplicationName:
+    Description: Name of application
+    Type: String
+  CustomerName:
+    Description: Name of Customer
+    Type: String
+    Default: onica
+  EnvironmentName:
+    Description: Name of Environment
+    Type: String
+    Default: common
+  CostCenter:
+    Type: String
+    Description: Tag value
+    Default: '0'
+  TechOwner:
+    Type: String
+    Description: Tag value
+    Default: Onica
+  TechOwnerEmail:
+    Type: String
+    Description: Tag value
+    Default: incidents@onica.com
+  HubAccountId:
+    Type: String
+    Description: Account ID where the Transit Gateway will be hosted.
+  VpcId:
+    Type: String
+    Description: VPC to be attached to the Transit Gateway.
+  SubnetIds:
+    Type: CommaDelimitedList
+    Description: One subnet per AZ to route traffic through the Transit Gateway.
+  TransitGatewayName:
+    Type: String
+    Description: (Optional) provide a name for the Transit Gateway.
+    Default: 'undefined'
+  AutoAcceptSharedAttachments:
+    Type: String
+    Description: Indicates whether attachment requests are automatically accepted.
+    Default: enable
+    AllowedValues:
+      - enable
+      - disable
+  DefaultRouteTableAssociation:
+    Type: String
+    Description: Enable or disable automatic association with the default association route table.
+    Default: enable
+    AllowedValues:
+      - enable
+      - disable
+  DefaultRouteTablePropagation:
+    Type: String
+    Description: Enable or disable automatic propagation of routes to the default propagation route table.
+    Default: enable
+    AllowedValues:
+      - enable
+      - disable
+  DnsSupport:
+    Type: String
+    Description: Enable or disable DNS support.
+    Default: enable
+    AllowedValues:
+      - enable
+      - disable
+  AttachmentName:
+    Type: String
+    Description: (optional) Name to use for the Transit Gateway VPC attachment.
+    Default: 'undefined'
+  Principals:
+    Type: CommaDelimitedList
+    Description: List of Accounts IDs to associate with the resource share.
+    Default: ''
+
+Conditions:
+  GatewayNameProvided:
+    !Not [!Equals [!Ref TransitGatewayName, 'undefined']]
+  IsHubAccount:
+    !Equals [!Ref HubAccountId, !Ref "AWS::AccountId"]
+  AttachmentNameProvided:
+    !Not [!Equals [!Ref AttachmentName, 'undefined']]
+  PrincipalsProvided:
+    Fn::Not:
+      - Fn::Equals:
+          - Fn::Join:
+              - ""
+              - Ref: Principals
+          - ""
+  DeployRAM: !And
+    - !Condition IsHubAccount
+    - !Condition PrincipalsProvided
+
+Resources:
+  TransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Condition: IsHubAccount
+    Properties:
+      AutoAcceptSharedAttachments: !Ref AutoAcceptSharedAttachments
+      DefaultRouteTableAssociation: !Ref DefaultRouteTableAssociation
+      DefaultRouteTablePropagation: !Ref DefaultRouteTablePropagation
+      Description: !Sub ${CustomerName}-${ApplicationName}-${EnvironmentName}
+      DnsSupport: !Ref DnsSupport
+      Tags:
+        - Key: Name
+          Value: !If
+            - GatewayNameProvided
+            - !Ref TransitGatewayName
+            - !Sub ${CustomerName}-${ApplicationName}-${EnvironmentName}-transit-gateway
+        - Key: Application
+          Value: !Ref ApplicationName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Customer
+          Value: !Ref CustomerName
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: TechOwner
+          Value: !Ref TechOwner
+        - Key: TechOwnerEmail
+          Value: !Ref TechOwnerEmail
+  TransitGatewayVPCAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Condition: IsHubAccount
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref VpcId
+      SubnetIds: !Ref SubnetIds
+      Tags:
+        - Key: Name
+          Value: !If
+            - AttachmentNameProvided
+            - !Ref AttachmentName
+            - !Sub ${CustomerName}-${ApplicationName}-${EnvironmentName}-${VpcId}
+        - Key: Application
+          Value: !Ref ApplicationName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Customer
+          Value: !Ref CustomerName
+        - Key: CostCenter
+          Value: !Ref CostCenter
+        - Key: TechOwner
+          Value: !Ref TechOwner
+        - Key: TechOwnerEmail
+          Value: !Ref TechOwnerEmail
+  TransitGatewayRAM:
+    Type: AWS::RAM::ResourceShare
+    Condition: DeployRAM
+    Properties:
+      AllowExternalPrincipals: true
+      Name: !Sub ${CustomerName}-${ApplicationName}-${EnvironmentName}-Transit-Gateway-RAM
+      Principals: !Ref Principals
+      ResourceArns:
+        - Fn::Join: ['', ["arn:aws:ec2:", !Ref 'AWS::Region', ":", !Ref 'AWS::AccountId', ":transit-gateway/", !Ref TransitGateway]]
+
+Outputs:
+  TransitGatewayId:
+    Description: ID of the transit gateway
+    Value: !If
+      - IsHubAccount
+      - !Ref TransitGateway
+      - None
+    Export:
+      Name: !Sub ${AWS::StackName}-TransitGatewayId
+  TransitGatewayRAM:
+    Description: ID of the transit gateway RAM
+    Value: !If
+      - DeployRAM
+      - !Ref TransitGatewayRAM
+      - None
+    Export:
+      Name: !Sub ${AWS::StackName}-TransitGatewayRAM

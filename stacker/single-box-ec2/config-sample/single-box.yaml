@@ -1,0 +1,36 @@
+# This module will launch a single box instances to a given target account
+
+namespace: ${environment}
+stacker_bucket: sensibill-${environment}-${region}
+
+sys_path: ../../stacker
+
+common_params: &common_params
+  EnvironmentName: ${environment}
+  ApplicationName: ${environment}-singlebox
+  ApplicationTier: infrastructure
+  CostCenter: platform
+  TechOwner: platform
+  TechOwnerEmail: prodsupport@getsensibill.com
+  DataClassification: none
+
+stacks:
+  single-box:
+    template_path: ./../cloudformation/single_box/templates/ec2.yaml
+    variables:
+      <<: *common_params
+      Environment: ${environment}
+      ChefEnvironment: ${environment}
+      ChefRunlist: sensibill::setup_api_with_db
+      Name: ${environment}-singlebox
+      Application: singlebox
+      CostCenter: platform
+      TechOwner: platform
+      TechOwnerEmail: prodsupport@getsensibill.com
+      KeyPairName: ${keypairname} #can be global var by having ${environment}-key in every account
+      ImageId: ami-0eb3e12d3927c36ef
+      PrivateSubnetID: ${xref ${vpc_stack}::PrivateSubnet1AID}
+      Volume1Size: ${default volume1size::25}
+      Volume2Size: ${default volume2size::200}
+      InstanceType: ${default instancetype::m5.xlarge}
+      SecurityGroupId: ${xref ${environment}-base-sgs::singleSGId},${xref ${environment}-base-sgs::adminSGId}
