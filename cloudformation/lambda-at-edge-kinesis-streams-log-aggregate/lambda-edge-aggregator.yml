@@ -1,0 +1,301 @@
+AWSTemplateFormatVersion:  2010-09-09
+
+Description: 'This template creates a Kinesis Firehose Delivery Stream for Lambda@Edge logs and a test distribution with a Lambda@Edge function'
+
+Parameters: 
+  KinesisBufferIntervalSeconds: 
+    Default: 60
+    Description: The frequency of data delivery to Amazon S3 is determined by the Amazon S3 Buffer size and Buffer interval value that you configured for your delivery stream. Kinesis Data Firehose buffers incoming data before delivering it to Amazon S3. You can configure the values for Amazon S3 Buffer size (1-128 MB) or Buffer interval (60 â€“ 900 seconds), and the condition satisfied first triggers data delivery to Amazon S3    
+    Type: Number
+    MinValue: 60
+    MaxValue: 900
+  KinesisBufferSizeMB: 
+    Default: 3
+    Description: The frequency of data delivery to Amazon S3 is determined by the Amazon S3 Buffer size and Buffer interval value that you configured for your delivery stream. Kinesis Data Firehose buffers incoming data before delivering it to Amazon S3. You can configure the values for Amazon S3 Buffer size (1-128 MB) or Buffer interval (60 â€“ 900 seconds), and the condition satisfied first triggers data delivery to Amazon S3    
+    Type: Number
+    MinValue: 1
+    MaxValue: 128
+  CreateTestDistribution: 
+    Description: Create a test distribution with Lambda@Edge viewer request function that you can use to test log aggregation.  PLEASE NOTE - You must be in US-EAST-1 to deploy this resource.
+    Default: 'Yes'
+    Type: String
+    AllowedValues: 
+      - 'Yes'
+      - 'No'
+
+Conditions:
+  IsIAD: 
+    !Equals [ !Ref 'AWS::Region', 'us-east-1' ]
+  CreateTestResources: !And 
+    - !Equals [ !Ref CreateTestDistribution, 'Yes' ]
+    - !Condition IsIAD
+
+Resources:
+  s3Bucket:
+    Type: AWS::S3::Bucket
+  deliveryRole:
+    Type: AWS::IAM::Role
+    Properties:
+        AssumeRolePolicyDocument:
+            Version: 2012-10-17
+            Statement:
+            -
+                Effect: Allow
+                Principal:
+                    Service: firehose.amazonaws.com
+                Action: 'sts:AssumeRole'
+        Policies:
+          -
+            PolicyName: !Join
+                - ''
+                - - 'kinesis_delivery_'
+                  - !Ref AWS::StackName
+            PolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                - 
+                    Effect: Allow
+                    Action:
+                        - 's3:AbortMultipartUpload'
+                        - 's3:GetBucketLocation'
+                        - 's3:GetObject'
+                        - 's3:ListBucket'
+                        - 's3:ListBucketMultipartUploads'
+                        - 's3:PutObject'
+                    Resource:
+                    - !Join 
+                        - ''
+                        - - 'arn:aws:s3:::'
+                          - !Ref s3Bucket
+                    - !Join 
+                        - ''
+                        - - 'arn:aws:s3:::'
+                          - !Ref s3Bucket
+                          - '*'
+  firehoseDeliveryStream: 
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamName: 
+        !Join
+          - ''
+          - - 'cf-lambda-edge-logs-'
+            - !Ref AWS::StackName
+      ExtendedS3DestinationConfiguration:
+        BucketARN: !Join 
+          - ''
+          - - 'arn:aws:s3:::'
+            - !Ref s3Bucket
+        BufferingHints:
+          IntervalInSeconds: !Ref KinesisBufferIntervalSeconds
+          SizeInMBs: !Ref KinesisBufferSizeMB
+        CompressionFormat: UNCOMPRESSED
+        Prefix: firehose/
+        RoleARN: !GetAtt deliveryRole.Arn
+  cloudwatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+        AssumeRolePolicyDocument:
+            Version: 2012-10-17
+            Statement:
+            -
+                Effect: Allow
+                Principal:
+                    Service: 
+                      - logs.us-east-1.amazonaws.com
+                      - logs.us-west-2.amazonaws.com
+                      - logs.us-east-2.amazonaws.com
+                      - logs.eu-central-1.amazonaws.com
+                      - logs.eu-west-2.amazonaws.com
+                      - logs.ap-south-1.amazonaws.com
+                      - logs.ap-southeast-1.amazonaws.com
+                      - logs.ap-southeast-2.amazonaws.com
+                      - logs.ap-northeast-1.amazonaws.com
+                      - logs.ap-northeast-2.amazonaws.com
+                      - logs.sa-east-1.amazonaws.com
+                Action: 'sts:AssumeRole'   
+  cloudwatchPolicy:
+    Type: AWS::IAM::Policy
+    Properties: 
+      PolicyName: !Join
+        - ''
+        - - 'cloudwatch_sub_filter_'
+          - !Ref AWS::StackName
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Action:
+              - 'firehose:*'
+          Resource: !GetAtt firehoseDeliveryStream.Arn
+        - Effect: Allow
+          Action: 'iam:PassRole'
+          Resource: !GetAtt cloudwatchRole.Arn
+      Roles:
+        -
+          Ref: cloudwatchRole
+
+  testDistribution:
+    Type: AWS::CloudFront::Distribution
+    Condition: CreateTestResources
+    Properties:
+      DistributionConfig:
+        Comment: 'Lambda@Edge log aggregation test distribution'
+        DefaultCacheBehavior:
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+          TargetOriginId: the-origin
+          ViewerProtocolPolicy: redirect-to-https
+          LambdaFunctionAssociations:
+            - EventType: viewer-request
+              LambdaFunctionARN: !Ref lambdaEdgeFunctionVersion
+        DefaultRootObject: index.html
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+          - DomainName: 'aws.amazon.com'
+            Id: the-origin
+            CustomOriginConfig:
+              OriginProtocolPolicy: 'https-only'
+
+  lambdaEdgeFunction:
+    Type: AWS::Lambda::Function
+    Condition: CreateTestResources
+    Properties:
+      FunctionName: 
+        !Join
+         - ''
+         - - 'GenerateViewerResponse-'
+           - !Ref AWS::StackName 
+      Description: >
+        Lambda function to generate a response displaying request headers.
+      Code:
+        ZipFile: !Sub |
+          exports.handler= (event, context, callback) => {
+
+              const requestHeaders = event.Records[0].cf.request.headers;
+              console.log("Request Processed In:" + process.env.AWS_REGION);
+            
+              
+              var str = `<table border="1" width="100%">
+                              <thead>
+                                  <tr><td><h1>Header</h2></td><td><h1>Value</h2></td></tr>
+                              </thead>
+                              <tbody>`;
+                              
+              for (var key in requestHeaders) {
+                if (requestHeaders.hasOwnProperty(key)) {
+                  str += "<tr><td>"+key + "</td><td>" + requestHeaders[key][0].value + "</td></tr>";
+                }
+              }
+              
+              str+= "</tbody></table>";
+            
+            
+              var content = `<html lang="en">
+                            <body>
+                              <table border="1" width="100%">
+                              <thead>
+                                  <tr><td><h1>Lambda@Edge Lab</h1></td></tr>
+                              </thead>
+                              <tfoot>
+                                  <tr><td>Lamdba@Edge Log Aggregator Blog</td></tr>
+                              </tfoot>
+                              <tbody>
+                                  <tr><td>Response sent by Lambda@Edge in ` + process.env.AWS_REGION + `</td></tr>
+                              </tbody>
+                              <tbody>
+                                  <tr><td> ` + str + `</td></tr>
+                              </tbody>
+                              </table>
+                            </body>
+                          </html>`;
+              
+              const response = {
+                  status: '200',
+                  statusDescription: 'OK',
+                  headers: {
+                      'cache-control': [{
+                          key: 'Cache-Control',
+                          value: 'max-age=100'
+                      }],
+                      'content-type': [{
+                          key: 'Content-Type',
+                          value: 'text/html'
+                      }],
+                      'content-encoding': [{
+                          key: 'Content-Encoding',
+                          value: 'UTF-8'
+                      }],
+                  },
+                  body: content,
+              };
+                  
+              callback(null, response);
+          };    
+      Handler: index.handler
+      Role: 
+        Fn::GetAtt: 
+              - "lambdaExecutionRole"
+              - "Arn"
+      Runtime: nodejs8.10
+
+
+  lambdaEdgeFunctionVersion:
+    Type: AWS::Lambda::Version
+    Condition: CreateTestResources
+    Properties:
+      FunctionName: !Ref lambdaEdgeFunction
+      Description: !Sub "Version 1"
+
+  lambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: CreateTestResources
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - edgelambda.amazonaws.com
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        -
+          PolicyName: 
+            !Join
+            - ''
+            - - 'lambda_basic_execution_'
+              - !Ref AWS::StackName
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+Outputs:
+
+  S3BucketDomainName:
+    Description: 'S3 bucket domain name'
+    Value: !GetAtt s3Bucket.DomainName
+  KinesisFireHoseDeliveryStreamArn:
+    Description: 'Kinesis Delivery Stream'
+    Value: !GetAtt firehoseDeliveryStream.Arn
+  CloudWatchRole:
+    Description: 'CloudWatch role for subscription filters'
+    Value: !GetAtt cloudwatchRole.Arn
+  CloudFrontTestDistribution:
+    Condition: CreateTestResources
+    Description: 'CloudFront Distribution for testing'
+    Value: !GetAtt testDistribution.DomainName
+  LambdaEdgeFunction:
+    Condition: CreateTestResources
+    Description: 'Lambda@Edge viewer request function'
+    Value: !GetAtt lambdaEdgeFunction.Arn
+    

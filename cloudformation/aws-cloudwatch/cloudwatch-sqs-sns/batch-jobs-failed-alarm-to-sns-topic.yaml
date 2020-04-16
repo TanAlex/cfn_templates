@@ -1,0 +1,35 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: 'Send out alarms when batch job failed'
+
+Parameters:
+  SnsTopicARN:
+    Type: String
+
+Resources:
+  ConfigEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+        - aws.batch
+        detail-type:
+        - "Batch Job State Change"
+        detail:
+          status: [
+            "FAILED"
+          ]
+      Targets:
+        - Arn: !Ref SnsTopicARN
+          Id: SnsTopicHigh
+  EventTopicPolicy:
+    Type: 'AWS::SNS::TopicPolicy'
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: 'sns:Publish'
+            Resource: '*'
+      Topics:
+        - !Ref SnsTopicARN
