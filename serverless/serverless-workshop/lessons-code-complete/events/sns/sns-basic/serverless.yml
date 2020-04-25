@@ -1,0 +1,29 @@
+service: aws-sns-basic
+
+custom:
+  topicName: sns-basic-topic-example
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  environment:
+    TOPIC_NAME: ${self:custom.topicName}
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "sns:Publish"
+      Resource: arn:aws:sns:${self:provider.region}:*:${self:custom.topicName}
+
+functions:
+  eventProducer:
+    handler: handler.eventProducer
+    events:
+      - http:
+          path: trigger
+          method: get
+          cors: true
+  eventConsumer:
+    handler: handler.eventConsumer
+    # FINAL_START
+    events:
+      - sns: ${self:custom.topicName}

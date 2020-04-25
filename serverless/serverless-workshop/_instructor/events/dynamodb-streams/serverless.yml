@@ -1,0 +1,97 @@
+
+service: event-driven-app
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  environment:
+    MY_TABLE: { Ref: myDynamoTable }
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:PutItem
+        - dynamodb:Scan
+        # WORKSHOP_START
+        # Step 3. In this_file, the `iamRoleStatements` must be updated to include `dynamodb:DeleteItem` permission to allow for the `delete` function to remove items from the dynamo table.
+        # WORKSHOP_END
+        # FINAL_START
+        # New DeleteItem permission for `delete` function
+        - dynamodb:DeleteItem
+        # FINAL_END
+        # WORKSHOP_START
+        # Step 7. In this_file, We need to update the dynamodb IAM permissions `GetRecords`, `GetShardIterator`, `DescribeStream`, `ListStreams` permissions for functions to access the Dynamo Stream.
+        # WORKSHOP_END
+        # FINAL_START
+        # New permissions needed for stream
+        - dynamodb:GetRecords
+        - dynamodb:GetShardIterator
+        - dynamodb:DescribeStream
+        - dynamodb:ListStreams
+        # FINAL_END
+      Resource: { Fn::GetAtt: [ myDynamoTable, Arn ] }
+
+functions:
+  create:
+    handler: handler.create
+    events:
+      - http:
+          path: create
+          method: post
+          cors: true
+  scan:
+    handler: handler.scan
+    events:
+      - http:
+          path: scan
+          method: post
+          cors: true
+  # WORKSHOP_START
+  # Add a `delete` function triggered by an http POST
+  # Step 2. In this_file, add the `delete` function exported from `handler.js` and attach it to an http POST event. #
+  # WORKSHOP_END
+  # FINAL_START
+  # New delete function
+  delete:
+    handler: handler.delete
+    events:
+      - http:
+          path: delete
+          method: post
+          cors: true
+  # FINAL_END
+  # WORKSHOP_START
+  # Step 8. In this_file, add a `handleStream` function triggered by a dynamo Stream. [See stream docs](http://bit.ly/2mhkJne)
+  # WORKSHOP_END
+  # FINAL_START
+  # New stream handler function
+  handleStream:
+    handler: handler.dynamoStreamHandler
+    events:
+      - stream:
+          type: dynamodb
+          arn: { Fn::GetAtt: [ myDynamoTable, StreamArn ] }
+          batchSize: 1
+  # FINAL_END
+
+resources:
+  Resources:
+    myDynamoTable:
+      Type: 'AWS::DynamoDB::Table'
+      Properties:
+        TableName: 'my-table-name'
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        # WORKSHOP_START
+        # Step 6. Now, add a stream to the dynamoDB table by setting the `StreamSpecification` property on the `Properties` of the CloudFormation declaration of the `myDynamoTable` table. Set `StreamViewType: NEW_AND_OLD_IMAGES`. [CloudFormation dynamob docs](http://amzn.to/2txNq3a)
+        # WORKSHOP_END
+        # FINAL_START
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        # FINAL_END

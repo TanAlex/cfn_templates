@@ -1,0 +1,20 @@
+
+service: using-http-cors-example
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+
+functions:
+  hello:
+    handler: handler.functionWithCors
+    events:
+      - http:
+          path: function-with-cors
+          method: post
+          # WORKSHOP_START
+          # Step 1. In this_file, add the `cors` settings to `http` event. See the http event docs for more info http://bit.ly/2mkgV4P #
+          # WORKSHOP_END
+          # FINAL_START
+          cors: true
+          # FINAL_END

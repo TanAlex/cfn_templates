@@ -1,0 +1,20 @@
+
+service: using-multiple-stages
+
+custom:
+  stage: ${opt:stage, 'dev'}
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  stage: ${self:custom.stage}
+  environment:
+    MY_STAGE_SPECIFIC_VAR: ${file(./config.${self:custom.stage}.json):projectName}
+
+functions:
+  hello:
+    handler: handler.hello
+    events:
+      - http:
+          path: hello
+          method: get

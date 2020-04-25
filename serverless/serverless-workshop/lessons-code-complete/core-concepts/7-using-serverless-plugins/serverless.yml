@@ -1,0 +1,21 @@
+
+service: using-serverless-plugins
+
+plugins:
+  - serverless-manifest-plugin
+
+custom:
+  output:
+    file: .serverless/manifest.json
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+
+functions:
+  hello:
+    handler: handler.hello
+    events:
+      - http:
+          path: hello
+          method: get

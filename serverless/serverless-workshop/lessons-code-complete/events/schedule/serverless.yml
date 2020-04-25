@@ -1,0 +1,12 @@
+
+service: aws-scheduled-cron
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+
+functions:
+  cron:
+    handler: handler.cronFunction
+    events:
+      - schedule: rate(1 minute)
