@@ -1,0 +1,1 @@
+https://medium.com/@Hironsan/save-aws-ec2-cost-by-automatically-stopping-idle-instance-using-lambda-and-cloudwatch-759edd62b27d

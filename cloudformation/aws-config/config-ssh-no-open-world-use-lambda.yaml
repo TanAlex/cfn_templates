@@ -1,0 +1,119 @@
+Resources:
+  IamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: "/"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+      - PolicyName: rules-example-policy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Action:
+            - logs:*
+            Effect: Allow
+            Resource: '*'
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AWSCloudTrailReadOnlyAccess
+      - arn:aws:iam::aws:policy/service-role/AWSConfigRulesExecutionRole
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  CloudTrailLogIntegrityLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import datetime
+          import time
+          client_ct = boto3.client('cloudtrail')
+          config = boto3.client('config')
+          def lambda_handler(event, context):
+            for trail in client_ct.describe_trails()['trailList']:
+              is_compliant = True
+              if trail['HomeRegion'] == context.invoked_function_arn.split(':')[3]:
+                current_region_trail = trail
+                annotation = ''
+                # evaluate log file validation
+                if not current_region_trail['LogFileValidationEnabled']:
+                  is_compliant = False
+                  annotation = annotation + ' CloudTrail log file validation is not enabled.'
+                # evaluate log file encryption
+                if not 'KmsKeyId' in current_region_trail:
+                  is_compliant = False
+                  annotation = annotation + ' CloudTrail log files are not encrypted in S3.'
+                result_token = 'No token found.'
+                if 'resultToken' in event: result_token = event['resultToken']
+                evaluations = [
+                  {
+                    'ComplianceResourceType': 'AWS::CloudTrail::Trail',
+                    'ComplianceResourceId': current_region_trail['Name'],
+                    'ComplianceType': 'COMPLIANT' if is_compliant else 'NON_COMPLIANT',
+                    'OrderingTimestamp': datetime.datetime.now()
+                  }
+                ]
+                if is_compliant: annotation = 'CloudTrail log files are encrypted and validated in S3.'
+                if annotation: evaluations[0]['Annotation'] = annotation
+                print(evaluations)
+                config.put_evaluations(
+                  Evaluations = evaluations,
+                  ResultToken = result_token
+                )
+          if __name__ == "__main__":
+            # Thanks: https://gist.github.com/thiago-vieira/4164936/227acbc80acb74bf07c6b46eeda4687ba586843f
+            class Context:
+              pass
+            context = Context()
+            context.invoked_function_arn = 'arn:aws:lambda:us-west-2:667805533836:function:config-dev-check_rule-cloud_trail_log_integrity'
+            event = {'hi': 'world'}
+            lambda_handler(event, context)
+      Role: !GetAtt IamRole.Arn
+      Timeout: 20
+      MemorySize: 1536
+      FunctionName: rules-example-check_rule-cloud_trail_log_integrity
+      Handler: index.lambda_handler
+      Runtime: python3.6
+  CloudTrailLogIntegrityConfigRule:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: rules-example-check-cloud-trail-log-integrity
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceIdentifier: !GetAtt CloudTrailLogIntegrityLambdaFunction.Arn
+        SourceDetails:
+        - EventSource: aws.config
+          MessageType: ConfigurationItemChangeNotification
+        - EventSource: aws.config
+          MessageType: OversizedConfigurationItemChangeNotification
+      Description: CIS 2.2, 2.7 - Ensure CloudTrail log file validation is enabled
+        (Scored), ensure CloudTrail logs are encrypted at rest using KMS CMKs (Scored)
+      Scope:
+        ComplianceResourceTypes:
+        - AWS::CloudTrail::Trail
+    DependsOn: CloudTrailLogIntegrityPermission
+  CloudTrailLogIntegrityPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt CloudTrailLogIntegrityLambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+  IncomingSshDisabledConfigRule:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: rules-example-check-incoming-ssh-disabled
+      Source:
+        Owner: AWS
+        SourceIdentifier: INCOMING_SSH_DISABLED
+      Description: 'CIS 4.1: Ensure no security groups allow ingress from 0.0.0.0/0
+        to port 22'
+      Scope:
+        ComplianceResourceTypes:
+        - AWS::EC2::SecurityGroup
