@@ -1,0 +1,117 @@
+service: videolyzer
+
+provider:
+  name: aws
+  runtime: python3.6
+  profile: ${file(../config.${self:provider.stage}.json):videolyzer.profile}
+
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "rekognition:*"
+      Resource: "*"
+    - Effect: "Allow"
+      Action:
+        - "s3:GetObject"
+      Resource:
+        - Fn::Join:
+          - ''
+          - - ${self:custom.videosBucketArn}
+            - '/*'
+    - Effect: "Allow"
+      Action:
+        - iam:GetRole
+        - iam:PassRole
+      Resource:
+        Fn::GetAtt:
+          - RekognitionSNSPublishRole
+          - Arn
+    - Effect: "Allow"
+      Action:
+        - "dynamodb:PutItem"
+      Resource:
+        Fn::GetAtt:
+          - VideosTable
+          - Arn
+
+  environment:
+    DYNAMODB_TABLE_NAME: ${self:custom.videosTableName}
+    REKOGNITION_SNS_TOPIC_ARN: ${self:custom.rekognitionSNSTopicArn}
+    REKOGNITION_ROLE_ARN:
+      Fn::GetAtt:
+        - RekognitionSNSPublishRole
+        - Arn
+
+custom:
+  videosTableName: ${file(../config.${self:provider.stage}.json):videolyzer.videos_table}
+  rekognitionSNSTopicArn:
+    Fn::Join:
+      - ':'
+      - - arn
+        - aws
+        - sns
+        - Ref: AWS::Region
+        - Ref: AWS::AccountId
+        - handleLabelDetectionTopic
+  videosBucketArn:
+      Fn::Join:
+        - ':'
+        - - arn
+          - aws
+          - s3
+          - ''
+          - ''
+          - ${file(../config.${self:provider.stage}.json):videolyzer.videos_bucket}
+
+functions:
+  startProcessingVideo:
+    handler: handler.start_processing_video
+    events:
+      - s3:
+          bucket: ${file(../config.${self:provider.stage}.json):videolyzer.videos_bucket}
+          event: s3:ObjectCreated:*
+          rules:
+            - suffix: .mp4
+  handleLabelDetection:
+    handler: handler.handle_label_detection
+    events:
+      - sns: handleLabelDetectionTopic
+
+resources:
+  Resources:
+    VideosTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          -
+            AttributeName: videoName
+            AttributeType: S
+        KeySchema:
+          -
+            AttributeName: videoName
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: ${self:custom.videosTableName}
+    RekognitionSNSPublishRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - rekognition.amazonaws.com
+              Action:
+                - sts:AssumeRole
+        Policies:
+          - PolicyName: RekognitionSNSPublishPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - sns:Publish
+                  Resource: ${self:custom.rekognitionSNSTopicArn}
