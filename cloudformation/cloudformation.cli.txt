@@ -17,3 +17,50 @@ $ for region in $regions; do ami=$(aws --region $region ec2 describe-images --fi
 # Get all ecs AMI
 $ regions=$(aws ec2 describe-regions --query "Regions[].RegionName" --output text)
 $ for region in $regions; do ami=$(aws --region $region ec2 describe-images --filters "Name=name,Values=amzn2-ami-ecs-hvm-2.0.20200319-x86_64-ebs" --query "Images[0].ImageId" --output "text"); printf "'$region':\n  ECSAMI: '$ami'\n"; done
+
+
+# CFN Stacks CLI
+
+## Deploy
+```
+stack_parameters="NotificationEmail=$email"
+aws cloudformation deploy \
+  --stack-name "$stack_name" \
+  --template-file template.yaml \
+  --capabilities CAPABILITY_IAM \
+  --parameter-overrides "$stack_parameters"
+```
+
+## Get output
+```
+state_machine=$(aws cloudformation describe-stacks \
+  --stack-name "$stack_name" \
+  --output text \
+  --query 'Stacks[][Outputs][][?OutputKey==`StepFunctionsStateMachine`][OutputValue]')
+echo state_machine=$state_machine
+
+sns_topic=$(aws cloudformation describe-stacks \
+  --stack-name "$stack_name" \
+  --output text \
+  --query 'Stacks[][Outputs][][?OutputKey==`SNSTopic`][OutputValue]')
+echo sns_topic=$sns_topic
+```
+
+## Post SNS message
+```
+aws sns publish \
+  --topic-arn "$sns_topic" \
+  --subject "Test message published directly to SNS topic" \
+  --message "hello, world"
+```
+
+# List AWS Accounts in AWS Organization
+
+```
+aws organizations list-accounts \
+  --output text \
+  --query 'Accounts[?Status==`ACTIVE`][Status,JoinedTimestamp,Id,Email,Name]' |
+  sort |
+  cut -f2- |
+  column -t -n -e -s$'\cI'
+```

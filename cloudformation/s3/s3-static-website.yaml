@@ -5,13 +5,13 @@ AWSTemplateFormatVersion: 2010-09-09
 Description: Resources to host documentation.
 
 Parameters:
-SiteName:
+  SiteName:
     Description: Site name
     Type: String
     Default: tp-beta-learning
 
 Resources:
-S3Bucket:
+  S3Bucket:
     Type: AWS::S3::Bucket
     Properties:
         BucketName: !Ref SiteName
@@ -20,7 +20,7 @@ S3Bucket:
             IndexDocument: index.html
             ErrorDocument: error.html
 
-BucketPolicy:
+  BucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
     PolicyDocument:
@@ -39,7 +39,7 @@ BucketPolicy:
     Bucket: !Ref S3Bucket
 
 Outputs:
-WebsiteURL:
+  WebsiteURL:
     Value: !GetAtt
         - S3Bucket
         - WebsiteURL

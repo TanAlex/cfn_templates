@@ -1,0 +1,40 @@
+#!/bin/bash -e
+#
+# lambdash-install - Install lambdash AWS Lambda function with CloudFormation
+#
+
+# Settings
+
+    function=lambdash
+    stackname=$function
+    region=us-east-1
+
+# Create CloudFormation stack containing AWS Lambda function 
+
+    template=lambdash.template
+    aws cloudformation create-stack \
+      --region "$region" \
+      --stack-name "$stackname" \
+      --capabilities CAPABILITY_IAM \
+      --template-body "file://$template" \
+      --parameters \
+        "ParameterKey=LambdaFunctionName,ParameterValue=$function" \
+      --tags "Key=Name,Value=$function"
+    echo region=$region stackname=$stackname
+
+# Wait for the stack to be created
+
+    aws cloudformation wait stack-create-complete \
+      --region "$region" \
+      --stack-name "$stackname"
+
+# Show the physical resource name for the lambdash program to use
+
+    export LAMBDASH_FUNCTION=$(aws cloudformation describe-stacks \
+      --region "$region" \
+      --stack-name "$stackname" \
+      --output text \
+      --query 'Stacks[*].Outputs[?OutputKey==`LambdaFunction`].[OutputValue]')
+
+    echo 'Set the following environment variable, and add to $HOME/.bashrc'
+    echo export LAMBDASH_FUNCTION=$LAMBDASH_FUNCTION
