@@ -1,0 +1,207 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'my-lambda-update-template'
+
+Parameters:
+
+  LambdaSourceBucket:
+    Description: AWS S3 Bucket in the Region which contains the Lambda Functions
+    Type: String
+    Default: lambda-function-staging-bucket
+    ConstraintDescription: Must be a valid bucket name containing Lambda functions, and in the same region.
+
+  LambdaSourceBucketPrefix:
+    Description: AWS S3 Bucket Prefix containing Lambda Functions
+    Type: String
+    Default: ''
+    ConstraintDescription: Bucket prefix that contains the lambda functions.
+
+  LambdaFunctionPackage:
+    Description: Lambda function pacakge name
+    Type: String
+    Default: ''
+    ConstraintDescription: Valid Lambda function package name deployed in the staging bucket.
+
+
+Resources:
+
+  # Bucket that will eventually contain lambda zips used for creating lambda function
+  LambdaZipsBucket:
+    Type: AWS::S3::Bucket
+
+
+  # Custom Resource: Used to copy all specified lambda zip packages in the 'Objects' list to the LambdaZipsBucket
+  CopyZips:
+    Type: Custom::CopyZips
+    Properties:
+      ServiceToken: !GetAtt 'CopyZipsFunction.Arn'
+      DestBucket: !Ref 'LambdaZipsBucket'
+      SourceBucket: !Ref 'LambdaSourceBucket'
+      Prefix: !Ref 'LambdaSourceBucketPrefix'
+      Objects:
+        - !Ref 'LambdaFunctionPackage'
+
+
+  CopyZipsFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Path: /
+      Policies:
+        - PolicyName: lambda-copier
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${LambdaSourceBucket}/${LambdaSourceBucketPrefix}*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${LambdaZipsBucket}/${LambdaSourceBucketPrefix}*'
+
+
+  # Lambda function used by the Custom-Resource CopyZips to copy over the lambda functions
+  CopyZipsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Copies objects from a source S3 bucket to a destination
+      Handler: index.handler
+      Runtime: python2.7
+      Role: !GetAtt 'CopyZipsFunctionRole.Arn'
+      Timeout: 240
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import threading
+          import boto3
+          import cfnresponse
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          s3 = boto3.client('s3')
+
+          def copy_objects(source_bucket, dest_bucket, prefix, objects):
+              """
+              Copy specified objects from source to destination bucket
+              :param source_bucket: source bucket name
+              :param dest_bucket: destination bucket name
+              :param prefix: source bucket prefix
+              :param objects: list of objects to copy
+              :return: None
+              """
+              for item in objects:
+                  key = prefix + item
+                  copy_source = {
+                      'CopySource': '/{}/{}'.format(source_bucket, key),
+                      'Bucket': source_bucket,
+                      'Key': key
+                  }
+                  logger.info('copy_source: [{}]'.format(copy_source))
+                  logger.info('dest_bucket: [{}]'.format(dest_bucket))
+                  logger.info('key: [{}]'.format(key))
+                  s3.copy_object(CopySource=copy_source, Bucket=dest_bucket, Key=key)
+
+
+          def delete_objects(bucket, prefix, objects):
+              """
+              Delete specified s3 objects
+              :param bucket: bucket name
+              :param prefix: bucket prefix
+              :param objects: list of object names
+              :return None
+              """
+              objects = {'Objects': [{'Key': prefix + item} for item in objects]}
+              s3.delete_objects(Bucket=bucket, Delete=objects)
+
+
+          def timeout_handler(event, context):
+              """
+              Timeout handling
+              :param event: lambda function event
+              :param context: lambda function context
+              :return None
+              """
+              logger.error('Execution is about to time out, sending failure response to CloudFormation')
+              cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)
+
+
+          def handler(event, context):
+              """
+              Lambda function handler
+              :param event: lambda function event
+              :param context: lambda function context
+              :return None
+              """
+              # make sure we send a failure to CloudFormation if the function
+              # is going to timeout
+              timer = threading.Timer((context.get_remaining_time_in_millis()
+                        / 1000.00) - 0.5, timeout_handler, args=[event, context])
+              timer.start()
+
+              logger.info('Event: [{}]'.format(event))
+              status = cfnresponse.SUCCESS
+
+              try:
+                  source_bucket = event['ResourceProperties']['SourceBucket']
+                  dest_bucket = event['ResourceProperties']['DestBucket']
+                  prefix = event['ResourceProperties']['Prefix']
+                  objects = event['ResourceProperties']['Objects']
+                  logging.info('SourceBucket=[{}], DestinationBucket=[{}], Prefix=[{}], \
+                                                        Objects=[{}]'.format(
+                                                        source_bucket, dest_bucket, prefix, objects))
+
+                  if event['RequestType'] == 'Delete':
+                      delete_objects(dest_bucket, prefix, objects)
+                  else:
+                      copy_objects(source_bucket, dest_bucket, prefix, objects)
+
+              except Exception as e:
+                  logger.error('Exception: %s' % e, exc_info=True)
+                  status = cfnresponse.FAILED
+
+              finally:
+                  timer.cancel()
+                  cfnresponse.send(event, context, status, {}, None)
+
+
+  # Role for actual lambda functions to be deployed by the stack
+  MyLambdaFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLambdaExecute
+
+
+  # Lambda function deployed by the stack
+  MyLambdaFunction:
+    DependsOn:
+      - CopyZips
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: 'Lambda function to index data to ES when object is added to S3'
+      Handler: my_lambda.lambda_handler
+      Runtime: python2.7
+      Role: !GetAtt 'MyLambdaFunctionRole.Arn'
+      Code:
+        S3Bucket: !Ref 'LambdaZipsBucket'
+        S3Key: !Join [ '', [ !Ref LambdaSourceBucketPrefix, !Ref 'LambdaFunctionPackage' ] ]
