@@ -1,0 +1,71 @@
+## Custom Resources
+  S3PutNotification:
+    Type: Custom::S3PutNotification
+    Properties:
+      ServiceToken: !GetAtt CustomResource.Arn
+      Resource: S3PutNotification
+      Bucket: !Ref ScenariosBucket
+      LambdaArn: !GetAtt ResultsParser.Arn
+
+  CopyDockerFile:
+    Type: Custom::CopyDockerFile
+    Properties:
+      ServiceToken: !GetAtt CustomResource.Arn
+      Resource: CopyAssets
+      SrcBucket: !Join ["-", [!FindInMap ["SourceCode", "General", "S3Bucket"], Ref: "AWS::Region"]]
+      SrcPath: !FindInMap ["SourceCode", "General", "KeyPrefix"]
+      ManifestFile: container-manifest.json
+      DestBucket: !Ref ContainerBucket
+
+  CopyConsoleFiles:
+    Type: Custom::CopyConsoleFiles
+    Properties:
+      ServiceToken: !GetAtt CustomResource.Arn
+      Resource: CopyAssets
+      SrcBucket: !Join ["-", [!FindInMap ["SourceCode", "General", "S3Bucket"], Ref: "AWS::Region"]]
+      SrcPath: !FindInMap ["SourceCode", "General", "KeyPrefix"]
+      ManifestFile: console-manifest.json
+      DestBucket: !Ref ConsoleBucket
+
+  ConsoleConfig:
+    Type: Custom::CopyConsoleFiles
+    Properties:
+      ServiceToken: !GetAtt CustomResource.Arn
+      Resource: ConfigFile
+      DestBucket: !Ref ConsoleBucket
+      AwsExports:
+        !Sub |
+          const awsConfig = {
+            cw_dashboard: 'https://console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${EcsLoadTesting}',
+            ecs_dashboard: 'https://${AWS::Region}.console.aws.amazon.com/ecs/home?region=${AWS::Region}#/clusters/${AWS::StackName}/tasks',
+            aws_project_region: '${AWS::Region}',
+            aws_cognito_region: '${AWS::Region}',
+            aws_cognito_identity_pool_id: '${CognitoIdentityPool}',
+            aws_user_pools_id: '${CognitoUserPool}',
+            aws_user_pools_web_client_id: '${CognitoUserPoolClient}',
+            oauth: {},
+            aws_cloud_logic_custom: [
+                {
+                    name: 'dlts',
+                    endpoint: 'https://${Api}.execute-api.${AWS::Region}.amazonaws.com/prod',
+                    region: '${AWS::Region}'
+                }
+            ]
+          }
+
+  Uuid:
+    Type: "Custom::UUID"
+    Properties:
+      ServiceToken: !GetAtt CustomResource.Arn
+      Resource: UUID
+
+  AnonymousMetric: 
+    Condition: Metrics 
+    Type: Custom::AnonymousMetric 
+    Properties: 
+      ServiceToken: !GetAtt CustomResource.Arn 
+      Resource: AnonymousMetric 
+      Region: !Ref AWS::Region 
+      SolutionId: SO0062 
+      UUID: !GetAtt Uuid.UUID 
+      Version: CODEVERSION 
