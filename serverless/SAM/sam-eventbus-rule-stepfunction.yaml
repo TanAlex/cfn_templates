@@ -1,0 +1,177 @@
+# https://github.com/bls20AWS/Amazon-EventBridge-Integration-With-Zendesk/blob/master/template.yaml
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Example App for EventBridge partner integration with Zendesk
+  
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 3
+
+Parameters:
+  ZendeskEventBusName:
+    Type: String
+    Description: A valid custom Event Bus for Zendesk Events.
+    MaxLength: 150
+    MinLength: 4
+    Default: "default"
+    AllowedPattern : ".+"
+
+  ZenDeskDomain:
+    Type: String
+    Description: Valid Zendesk domain.
+    MaxLength: 150
+    MinLength: 4
+    Default: "example-domain.zendesk"
+    AllowedPattern : ".+"
+
+  ZenDeskPassword:
+    Type: String
+    Description: Valid Zendesk Password.
+    MaxLength: 150
+    MinLength: 4
+    Default: "abcfedghijllmnop12345678"
+    AllowedPattern : ".+"
+
+  ZenDeskUsername:
+    Type: String
+    Description: Valid Zendesk Username.
+    MaxLength: 150
+    MinLength: 4
+    Default: "email@address.com"
+    AllowedPattern : ".+"
+
+Resources:
+##########################################################################
+#  Lambda functions                                                      #
+##########################################################################
+  CreateZendeskArticle:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: src/
+      Handler: CreateZendeskArticle.handler
+      Runtime: nodejs12.x
+      MemorySize: 128
+      Environment:
+        Variables:
+          ZenDeskDomain: !Ref ZenDeskDomain
+          ZenDeskPassword: !Ref ZenDeskPassword
+          ZenDeskUsername: !Ref ZenDeskUsername
+  
+  GetFullZendeskTicket:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: src/
+      Handler: GetFullZendeskTicket.handler
+      Runtime: nodejs12.x
+      MemorySize: 128
+      Environment:
+        Variables:
+          ZenDeskDomain: !Ref ZenDeskDomain
+          ZenDeskPassword: !Ref ZenDeskPassword
+          ZenDeskUsername: !Ref ZenDeskUsername
+
+  GetFullZendeskUser:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: src/
+      Handler: GetFullZendeskUser.handler
+      Runtime: nodejs12.x
+      MemorySize: 128
+      Environment:
+        Variables:
+          ZenDeskDomain: !Ref ZenDeskDomain
+          ZenDeskPassword: !Ref ZenDeskPassword
+          ZenDeskUsername: !Ref ZenDeskUsername
+
+########################################################################
+#   EventBridge Rules                                                    #
+##########################################################################
+
+  ZendeskNewWebQueryClosed: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "New Web Query"
+      EventBusName: 
+         Ref: ZendeskEventBusName
+      EventPattern: 
+        account:
+        - !Sub '${AWS::AccountId}'
+        detail-type: 
+        - "Support Ticket: Comment Created"
+        detail:
+          ticket_event:
+            ticket:
+              status: 
+              - solved
+              tags:
+              - web_widget
+              tags: 
+              - guide
+      Targets: 
+        - RoleArn: !GetAtt [ MyStatesExecutionRole, Arn ]
+          Arn: !Ref FreshTracksZenDeskStateMachine
+          Id: NewQuery
+
+########################################################################
+#   Roles                                                             #
+########################################################################
+  MyStatesExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow" 
+            Principal:
+              Service:
+                - !Sub states.amazonaws.com
+                - !Sub apigateway.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: StatesExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "lambda:InvokeFunction"
+                Resource: "*"
+##########################################################################
+#   STEP FUNCTION                                                        #
+##########################################################################
+  FreshTracksZenDeskStateMachine:
+    Type: "AWS::StepFunctions::StateMachine"
+    Properties:
+      StateMachineType: EXPRESS
+      DefinitionString: !Sub |
+               {
+                    "Comment": "Create a new article from a zendeskTicket",
+                    "StartAt": "GetFullZendeskTicket",
+                    "States": {
+                      "GetFullZendeskTicket": {
+                      "Comment": "Get Full Ticket Details",
+                      "Type": "Task",
+                      "ResultPath": "$.FullTicket",
+                      "Resource": "${GetFullZendeskTicket.Arn}",
+                      "Next": "GetFullZendeskUser"
+                      },
+                      "GetFullZendeskUser": {
+                      "Comment": "Get Full User Details",
+                      "Type": "Task",
+                      "ResultPath": "$.FullUser",
+                      "Resource": "${GetFullZendeskUser.Arn}",
+                      "Next": "PublishArticle"
+                      },
+                      "PublishArticle": {
+                      "Comment": "Publish as an article",
+                      "Type": "Task",
+                      "InputPath": "$",
+                      "Resource": "${CreateZendeskArticle.Arn}",
+                      "End": true
+                      }
+                    }
+                }
+      RoleArn: !GetAtt [ MyStatesExecutionRole, Arn ]
