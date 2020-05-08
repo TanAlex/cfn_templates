@@ -1,0 +1,22 @@
+# https://github.com/aws-samples/serverless-app-examples/blob/master/javascript/twilio-conference/template.yaml
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: Allows multiple people to chat together in a conference room.
+Resources:
+  twilioconference:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: index.handler
+      Runtime: nodejs12.x
+      CodeUri: .
+      Description: Allows multiple people to chat together in a conference room.
+      MemorySize: 128
+      Timeout: 15
+      Policies:
+        - CloudWatchPutMetricPolicy: {}
+      Events:
+        Api1:
+          Type: Api
+          Properties:
+            Path: /MyResource
+            Method: ANY
