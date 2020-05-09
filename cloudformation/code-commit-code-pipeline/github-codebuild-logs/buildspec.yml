@@ -1,0 +1,14 @@
+version: 0.2
+phases:
+  install:
+    commands:
+    - pip install aws-sam-cli
+    - make init
+  build:
+    commands:
+    - make
+    - make package
+artifacts:
+  files:
+    - dist/packaged-template.yml
+  discard-paths: yes

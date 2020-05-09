@@ -1,0 +1,186 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  This serverless app creates publicly accessible links to PR build logs for a given AWS CodeBuild project and posts them as a comment
+  on the corresponding GitHub PR.
+
+Metadata:
+  AWS::ServerlessRepo::Application:
+    Name: github-codebuild-logs
+    Description: >
+      This serverless app creates publicly accessible links to PR build logs for a given AWS CodeBuild project and posts them as a comment
+      on the corresponding GitHub PR.
+    Author: James Hood
+    # SPDX License Id, e.g., MIT, MIT-0, Apache-2.0. See https://spdx.org/licenses for more details
+    SpdxLicenseId: MIT
+    # paths are relative to .aws-sam/build directory
+    LicenseUrl: LICENSE
+    ReadmeUrl: README.md
+    Labels: [github, pr, ci, codebuild, logs]
+    HomePageUrl: https://github.com/jlhood/github-codebuild-logs
+    # Update the semantic version and run sam publish to publish a new version of your app
+    SemanticVersion: 1.3.0
+    # best practice is to use git tags for each release and link to the version tag as your source code URL
+    SourceCodeUrl: https://github.com/jlhood/github-codebuild-logs/tree/1.3.0
+
+Parameters:
+  CodeBuildProjectName:
+    Type: String
+    Description: Name of CodeBuild project this app is posting logs for.
+  ExpirationInDays:
+    Type: Number
+    Description: Number of days before a build's log page expires.
+    MinValue: 1
+    Default: 30
+  CodeBuildProjectCustomLogGroupName:
+    Type: String
+    Default: ""
+    Description: If the CodeBuild Project has a custom log group name, you can specify it here. If not provided, the app will assume the CodeBuild default log group name format of /aws/codebuild/<project name>.
+  GitHubOAuthToken:
+    Type: String
+    Default: ""
+    Description: OAuth token used for writing comments to GitHub PRs. If not provided, the app will attempt to pull an OAuth token from the CodeBuild project.
+    NoEcho: true
+  LogLevel:
+    Type: String
+    Description: Log level for Lambda function logging, e.g., ERROR, INFO, DEBUG, etc
+    Default: INFO
+  DeletePreviousComments:
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
+    Description: Set to "true" to delete previously posted PR comments before posting a new one.
+
+Conditions:
+  UseDefaultProjectLogGroupName:
+    !Equals [!Ref CodeBuildProjectCustomLogGroupName, '']
+  GitHubOAuthTokenProvided:
+    !Not [!Equals [!Ref GitHubOAuthToken, '']]
+
+Resources:
+  ProcessBuildEvents:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: processbuildevents.handler
+      Runtime: python3.7
+      Tracing: Active
+      Timeout: 60
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref BuildLogs
+        - Statement:
+            Effect: Allow
+            Action:
+              - codebuild:BatchGetBuilds
+              - codebuild:BatchGetProjects
+            Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${CodeBuildProjectName}
+        - Statement:
+            Effect: Allow
+            Action:
+              - logs:FilterLogEvents
+            Resource: !Sub
+              - arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${logGroupName}:log-stream:*
+              - logGroupName: !If
+                - UseDefaultProjectLogGroupName
+                - !Sub /aws/codebuild/${CodeBuildProjectName}
+                - !Ref CodeBuildProjectCustomLogGroupName
+        - !If
+          - GitHubOAuthTokenProvided
+          - AWSSecretsManagerGetSecretValuePolicy:
+              SecretArn: !Ref GitHubOAuthTokenSecret
+          - !Ref AWS::NoValue
+      Environment:
+        Variables:
+          LOG_LEVEL: !Ref LogLevel
+          BUILD_LOGS_BUCKET_NAME: !Ref BuildLogs
+          CODEBUILD_PROJECT_NAME: !Ref CodeBuildProjectName
+          EXPIRATION_IN_DAYS: !Ref ExpirationInDays
+          BUILD_LOGS_API_ENDPOINT: !Sub "https://${BuildLogsApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/buildlogs"
+          GITHUB_OAUTH_TOKEN_SECRET_ARN: !If
+            - GitHubOAuthTokenProvided
+            - !Ref GitHubOAuthTokenSecret
+            - ''
+          DELETE_PREVIOUS_COMMENTS: !Ref DeletePreviousComments
+      Events:
+        BuildStatus:
+          Type: CloudWatchEvent
+          Properties:
+            Pattern:
+              source:
+                - aws.codebuild
+              'detail-type':
+                - CodeBuild Build State Change
+              detail:
+                'project-name':
+                  - !Ref CodeBuildProjectName
+                'build-status':
+                  - SUCCEEDED
+                  - FAILED
+
+  GitHubOAuthTokenSecret:
+    Condition: GitHubOAuthTokenProvided
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub /github-codebuild-logs/${AWS::StackName}/GitHubOAuthToken
+      SecretString: !Ref GitHubOAuthToken
+
+  GetBuildLogs:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: getbuildlogs.handler
+      Runtime: python3.7
+      Tracing: Active
+      Timeout: 20
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref BuildLogs
+      Environment:
+        Variables:
+          LOG_LEVEL: !Ref LogLevel
+          BUILD_LOGS_BUCKET_NAME: !Ref BuildLogs
+          CODEBUILD_PROJECT_NAME: !Ref CodeBuildProjectName
+          EXPIRATION_IN_DAYS: !Ref ExpirationInDays
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BuildLogsApi
+            Path: /buildlogs
+            Method: get
+
+  BuildLogsApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      MethodSettings:
+        # This is a publicly accessible endpoint so don't let someone rack up costs by calling our endpoint over and over again.
+        - ThrottlingRateLimit: 1
+          ThrottlingBurstLimit: 2
+          ResourcePath: '/*'
+          HttpMethod: '*'
+
+  BuildLogs:
+    Type: AWS::S3::Bucket
+    Properties:
+      LifecycleConfiguration:
+        Rules:
+        - ExpirationInDays: !Ref ExpirationInDays
+          Status: Enabled
+
+Outputs:
+  ProcessBuildEventsFunctionName:
+    Description: "ProcessBuildEvents Lambda Function Name"
+    Value: !Ref ProcessBuildEvents
+  ProcessBuildEventsFunctionArn:
+    Description: "ProcessBuildEvents Lambda Function ARN"
+    Value: !GetAtt ProcessBuildEvents.Arn
+  BuildLogsBucketName:
+    Description: "Build logs S3 bucket name"
+    Value: !Ref BuildLogs
+  BuildLogsBucketArn:
+    Description: "Build logs S3 bucket ARN"
+    Value: !GetAtt BuildLogs.Arn
