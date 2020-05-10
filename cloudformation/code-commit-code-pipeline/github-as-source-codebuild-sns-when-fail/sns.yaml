@@ -1,0 +1,44 @@
+  SnsPublishRole:
+    Condition: CreateSNSNotifications
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "events.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: AllowLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'SNS:Publish'
+                Resource:
+                  - !Ref SnsTopicArn
+
+  CodeBuildNotificationRule:
+    Condition: CreateSNSNotifications
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${JobName}-fail-notification'
+      Description: Notify about codebuild project failures
+      RoleArn: !GetAtt SnsPublishRole.Arn
+      EventPattern:
+        source:
+          - "aws.codebuild"
+        detail-type:
+          - "CodeBuild Build State Change"
+        detail:
+          build-status:
+            - "FAILED"
+            - "STOPPED"
+          project-name:
+            - !Ref CodeBuildProject
+      State: ENABLED
+      Targets:
+        - Arn: Ref SnsTopicArn
+          Id: NotificationTopic

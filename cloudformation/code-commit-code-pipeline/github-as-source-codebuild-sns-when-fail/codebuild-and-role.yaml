@@ -1,0 +1,83 @@
+Resources:
+  CodeBuildRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "codebuild.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: AllowLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:*'
+                Resource: '*'
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref JobName
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: NO_ARTIFACTS
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+      Cache:
+        Type: NO_CACHE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:3.0
+        EnvironmentVariables:
+          - Name: SYSTEM_BUCKET 
+            Value: !Ref SystemBucketName
+      Source:
+        Type: GITHUB
+        Location: !Ref GithubRepository 
+        GitCloneDepth: 1
+        BuildSpec: !Ref BuildSpecPath 
+        ReportBuildStatus: False
+        InsecureSsl: False
+      TimeoutInMinutes: !Ref TimeoutInMinutes
+
+  RunCodeBuildJobRole:
+    Condition: ScheduleRuns
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "events.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: StartTask 
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'codebuild:StartBuild'
+                Resource:
+                  - !GetAtt CodeBuildProject.Arn
+
+  RunCodeBuildJobRoleRule:
+    Condition: ScheduleRuns
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${JobName}-scheduler'
+      Description: Periodically runs codebuild job to archive defunct accounts
+      ScheduleExpression: !Ref ScheduleRate
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt CodeBuildProject.Arn
+          Id: CodeBuildProject
+          RoleArn: !GetAtt RunCodeBuildJobRole.Arn
