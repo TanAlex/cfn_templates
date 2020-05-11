@@ -1,0 +1,91 @@
+# https://medium.com/@shweta2202/using-aws-batch-with-step-functions-90fc2b0d6c12
+
+{
+  "StartAt": "StepOneChunker",
+  "States":
+    {
+      "StepOneChunker":
+        {
+          "Type": "Task",
+          "Resource": "arn:aws:states:somelambda",
+          "ResultPath": "$.numChunks",
+          "Next": "AsyncStepTwoBatchJob",
+        },
+      "AsyncStepTwoBatchJob":
+        {
+          "Type": "Task",
+          "Resource": "arn:aws:states:::batch:submitJob",
+          "ResultPath": "$.taskresult.jobDefinition.jobBatchInfo",
+          "Parameters":
+            {
+              "JobDefinition": "job-two",
+              "ArrayProperties": { "Size.$": "$.numChunks" },
+              "JobName.$": "$.jobname",
+              "JobQueue": "job-queue-two",
+              "ContainerOverrides":
+                { "Environment": [{ ? // passing an environment variable
+                          "Name"
+                        : "SOME_VALUE", "Value.$": "$.numChunks" }] },
+            },
+          "Next": "AsyncStepThreeBatchJob",
+        },
+      "AsyncStepThreeBatchJob":
+        {
+          "Type": "Task",
+          "ResultPath": "$.taskresult.jobDefinition.jobBatchInfo",
+          "Resource": "arn:aws:states:::batch:submitJob",
+          "Parameters":
+            {
+              "JobDefinition": "job-three",
+              "DependsOn":
+                [
+                  {
+                    "JobId.$": "$.taskresult.jobDefinition.jobBatchInfo.JobId",
+                    "Type": "N_TO_N",
+                  },
+                ],
+              "ArrayProperties": { "Size.$": "$.numChunks" },
+              "JobName.$": "$.jobname",
+              "JobQueue": "job-queue-3",
+              "ContainerOverrides":
+                {
+                  "Environment": [{ "Name": "SOME_VAL", "Value.$": "$.type" }],
+                },
+            },
+          "Next": "SyncStep4BatchJob",
+        },
+      "SyncStep4BatchJob":
+        {
+          "Type": "Task",
+          "ResultPath": "$.taskresult.jobDefinition.jobBatchInfo",
+          "Resource": "arn:aws:states:::batch:submitJob.sync",
+          "Parameters":
+            {
+              "JobDefinition": "job-four",
+              "DependsOn":
+                [
+                  {
+                    "JobId.$": "$.taskresult.jobDefinition.jobBatchInfo.JobId",
+                    "Type": "N_TO_N",
+                  },
+                ],
+              "ArrayProperties": { "Size.$": "$.numChunks" },
+              "JobName.$": "$.jobname",
+              "JobQueue": "job-queue-4",
+              "ContainerOverrides":
+                {
+                  "Environment": [{ "Name": "SOME_VAL", "Value.$": "$.type" }],
+                },
+            },
+          "TimeoutSeconds": 1200,
+          "Next": "StepFiveFinalizer",
+        },
+      "StepFiveFinalizer":
+        {
+          "Type": "Task",
+          "Resource": "arn:aws:states:us-east-1:anotherlambda",
+          "ResultPath": "$",
+          "End": true,
+        },
+    },
+}

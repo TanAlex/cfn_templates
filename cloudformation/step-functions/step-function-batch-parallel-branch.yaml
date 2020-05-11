@@ -1,0 +1,148 @@
+# https://aws.amazon.com/getting-started/hands-on/process-video-jobs-with-aws-batch-on-aws-step-functions/
+{
+    "StartAt": "Extract Metadata",
+    "States": {
+        "Extract Metadata": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::batch:submitJob.sync",
+            "Parameters": {
+                "JobDefinition": "arn:aws:batch:REGION:112233445566:job-definition/StepsBatchTutorial_ExtractMetadata:1",
+                "JobName": "SplitVideo",
+                "JobQueue": "arn:aws:batch:REGION:112233445566:job-queue/StepsBatchTutorial_HighPriorityQueue"
+            },
+            "Next": "Process Video"
+        },
+        "Process Video": {
+            "Type": "Parallel",
+            "End": true,
+            "Branches": [
+                {
+                    "StartAt": "Extract Features",
+                    "States": {
+                        "Extract Features": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:states:::batch:submitJob.sync",
+                            "Parameters": {
+                                "JobDefinition": "arn:aws:batch:REGION:112233445566:job-definition/StepsBatchTutorial_ExtractFeatures:1",
+                                "JobName": "ExtractFeatures",
+                                "JobQueue": "arn:aws:batch:REGION:112233445566:job-queue/StepsBatchTutorial_LowPriorityQueue"
+                            },
+                            "End": true
+                        }
+                    }
+                },
+                {
+                    "StartAt": "Transcode Video",
+                    "States": {
+                        "Transcode Video": {
+                            "Type": "Parallel",
+                            "End": true,
+                            "Branches": [
+                                {
+                                    "StartAt": "Transcode_4k-1",
+                                    "States": {
+                                        "Transcode_4k-1": {
+                                            "Type": "Task",
+                                            "Resource": "arn:aws:states:::batch:submitJob.sync",
+                                            "Parameters": {
+                                                "JobDefinition": "arn:aws:batch:REGION:112233445566:job-definition/StepsBatchTutorial_TranscodeVideo:1",
+                                                "JobName": "Transcode_4k-1",
+                                                "JobQueue": "arn:aws:batch:REGION:112233445566:job-queue/StepsBatchTutorial_HighPriorityQueue"
+                                            },
+                                            "Next": "Transcode_4k-2"
+                                        },
+                                        "Transcode_4k-2": {
+                                            "Type": "Task",
+                                            "Resource": "arn:aws:states:::batch:submitJob.sync",
+                                            "Parameters": {
+                                                "JobDefinition": "arn:aws:batch:REGION:112233445566:job-definition/StepsBatchTutorial_TranscodeVideo:1",
+                                                "JobName": "Transcode_4k-2",
+                                                "JobQueue": "arn:aws:batch:REGION:112233445566:job-queue/StepsBatchTutorial_LowPriorityQueue"
+                                            },
+                                            "End": true
+                                        }
+                                    }
+                                },
+                                {
+                                    "StartAt": "Transcode_1080p-1",
+                                    "States": {
+                                        "Transcode_1080p-1": {
+                                            "Type": "Task",
+                                            "Resource": "arn:aws:states:::batch:submitJob.sync",
+                                            "Parameters": {
+                                                "JobDefinition": "arn:aws:batch:REGION:112233445566:job-definition/StepsBatchTutorial_TranscodeVideo:1",
+                                                "JobName": "Transcode_1080p-1",
+                                                "JobQueue": "arn:aws:batch:REGION:112233445566:job-queue/StepsBatchTutorial_HighPriorityQueue"
+                                            },
+                                            "Next": "Transcode_1080p-2"
+                                        },
+                                        "Transcode_1080p-2": {
+                                            "Type": "Task",
+                                            "Resource": "arn:aws:states:::batch:submitJob.sync",
+                                            "Parameters": {
+                                                "JobDefinition": "arn:aws:batch:REGION:112233445566:job-definition/StepsBatchTutorial_TranscodeVideo:1",
+                                                "JobName": "Transcode_1080p-2",
+                                                "JobQueue": "arn:aws:batch:REGION:112233445566:job-queue/StepsBatchTutorial_LowPriorityQueue"
+                                            },
+                                            "End": true
+                                        }
+                                    }
+                                },
+                                {
+                                    "StartAt": "Transcode_720p-1",
+                                    "States": {
+                                        "Transcode_720p-1": {
+                                            "Type": "Task",
+                                            "Resource": "arn:aws:states:::batch:submitJob.sync",
+                                            "Parameters": {
+                                                "JobDefinition": "arn:aws:batch:REGION:112233445566:job-definition/StepsBatchTutorial_TranscodeVideo:1",
+                                                "JobName": "Transcode_720p-1",
+                                                "JobQueue": "arn:aws:batch:REGION:112233445566:job-queue/StepsBatchTutorial_HighPriorityQueue"
+                                            },
+                                            "Next": "Transcode_720p-2"
+                                        },
+                                        "Transcode_720p-2": {
+                                            "Type": "Task",
+                                            "Resource": "arn:aws:states:::batch:submitJob.sync",
+                                            "Parameters": {
+                                                "JobDefinition": "arn:aws:batch:REGION:112233445566:job-definition/StepsBatchTutorial_TranscodeVideo:1",
+                                                "JobName": "Transcode_720p-2",
+                                                "JobQueue": "arn:aws:batch:REGION:112233445566:job-queue/StepsBatchTutorial_LowPriorityQueue"
+                                            },
+                                            "End": true
+                                        }
+                                    }
+                                },
+                                {
+                                    "StartAt": "Transcode_480p-1",
+                                    "States": {
+                                        "Transcode_480p-1": {
+                                            "Type": "Task",
+                                            "Resource": "arn:aws:states:::batch:submitJob.sync",
+                                            "Parameters": {
+                                                "JobDefinition": "arn:aws:batch:REGION:112233445566:job-definition/StepsBatchTutorial_TranscodeVideo:1",
+                                                "JobName": "Transcode_480p-1",
+                                                "JobQueue": "arn:aws:batch:REGION:112233445566:job-queue/StepsBatchTutorial_HighPriorityQueue"
+                                            },
+                                            "Next": "Transcode_480p-2"
+                                        },
+                                        "Transcode_480p-2": {
+                                            "Type": "Task",
+                                            "Resource": "arn:aws:states:::batch:submitJob.sync",
+                                            "Parameters": {
+                                                "JobDefinition": "arn:aws:batch:REGION:112233445566:job-definition/StepsBatchTutorial_TranscodeVideo:1",
+                                                "JobName": "Transcode_480p-2",
+                                                "JobQueue": "arn:aws:batch:REGION:112233445566:job-queue/StepsBatchTutorial_LowPriorityQueue"
+                                            },
+                                            "End": true
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}
