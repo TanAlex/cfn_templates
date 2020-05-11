@@ -1,0 +1,48 @@
+{
+    "Comment": "State machine that runs parallel tasks.",
+    "StartAt": "StartStates",
+    "States": {
+      "StartStates": {
+        "Type": "Task",
+        "Resource": "${Lambda1Arn}",
+        "Next": "ChoiceState",
+        "Comment": "Accept input at beginning of state machine executions."
+      },
+      "ChoiceState": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.status",
+            "StringEquals": "Approved",
+            "Next": "Task1"
+          },
+          {
+            "Not": {
+              "Variable": "$.status",
+              "StringEquals": "Approved"
+            },
+            "Next": "Task2"
+          }
+        ],
+        "Default": "DefaultState",
+        "Comment": "Determines which state task to run based on Approved status."
+      },
+      "Task1": {
+        "Type": "Task",
+        "Resource": "${Lambda2Arn}",
+        "End": true,
+        "Comment": "Task for approved status."
+      },
+      "Task2": {
+        "Type": "Task",
+        "Resource": "${Lambda3Arn}",
+        "End": true,
+        "Comment": "Task for unapproved status."
+      },
+      "DefaultState": {
+        "Type": "Fail",
+        "Cause": "The value does not match available choice metrics.",
+        "Comment": "Default state."
+      }
+    }
+  }

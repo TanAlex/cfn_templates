@@ -1,0 +1,92 @@
+{
+    "Comment": "State machine that runs parallel tasks.",
+    "StartAt": "StartStates",
+    "States": {
+      "StartStates": {
+        "Type": "Task",
+        "Resource": "${Lambda1Arn}",
+        "Next": "ChoiceState",
+        "Comment": "Accept input at beginning of state machine executions."
+      },
+      "ChoiceState": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.value",
+            "NumericGreaterThanEquals": 75,
+            "Next": "PassingTasks"
+          },
+          {
+            "Not": {
+              "Variable": "$.value",
+              "NumericGreaterThanEquals": 75
+            },
+            "Next": "FailingTasks"
+          }
+        ],
+        "Default": "DefaultState",
+        "Comment": "Determines which state task to run based on pass/fail score (75)"
+      },
+      "PassingTasks": {
+        "Type": "Parallel",
+        "End": true,
+        "Branches": [
+          {
+            "StartAt": "PassingScore1",
+            "States": {
+              "PassingScore1": {
+                "Type": "Task",
+                "Resource": "${Lambda2Arn}",
+                "End": true,
+                "Comment": "Only runs when a user scores >= 75"
+              }
+            }
+          },
+          {
+            "StartAt": "PassingScore2",
+            "States": {
+              "PassingScore2": {
+                "Type": "Task",
+                "Resource": "${Lambda3Arn}",
+                "End": true,
+                "Comment": "Doing something in parallel with PassingScore1"
+              }
+            }
+          }
+        ]
+      },
+      "FailingTasks": {
+        "Type": "Parallel",
+        "End": true,
+        "Branches": [
+          {
+            "StartAt": "FailingScore1",
+            "States": {
+              "FailingScore1": {
+                "Type": "Task",
+                "Resource": "${Lambda4Arn}",
+                "End": true,
+                "Comment": "Only runs when a user scores < 75"
+              }
+            }
+          },
+          {
+            "StartAt": "FailingScore2",
+            "States": {
+              "FailingScore2": {
+                "Type": "Task",
+                "Resource": "${Lambda5Arn}",
+                "End": true,
+                "Comment": "Doing something in parallel with FailingScore1"
+              }
+            }
+          }
+        ]
+      },
+      "DefaultState": {
+        "Type": "Fail",
+        "Cause": "The value does not match available choice metrics.",
+        "Comment": "Default state."
+      }
+    }
+  }

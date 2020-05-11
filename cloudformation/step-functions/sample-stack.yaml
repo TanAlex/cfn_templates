@@ -1,0 +1,177 @@
+# https://github.com/stackery/state-machine-examples
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  TriggerStateMachine:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-TriggerStateMachine
+      Description: !Sub
+        - Stack ${StackTagName} Environment ${EnvironmentTagName} Function ${ResourceName}
+        - ResourceName: TriggerStateMachine
+      CodeUri: src/TriggerStateMachine
+      Handler: index.handler
+      Runtime: nodejs8.10
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: !Ref MyStateMachine
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref MyStateMachine
+      Events:
+        rawData:
+          Type: S3
+          Properties:
+            Bucket: !Ref rawData
+            Events:
+              - s3:ObjectCreated:*
+              - s3:ObjectRemoved:*
+  rawData:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-rawdata-${AWS::AccountId}
+  paystubs:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-paystubs-${AWS::AccountId}
+  processedData:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-processda-${AWS::AccountId}
+  processData:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-processData
+      Description: !Sub
+        - Stack ${StackTagName} Environment ${EnvironmentTagName} Function ${ResourceName}
+        - ResourceName: processData
+      CodeUri: src/processData
+      Handler: index.handler
+      Runtime: nodejs8.10
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - S3CrudPolicy:
+            BucketName: !Ref processedData
+        - S3CrudPolicy:
+            BucketName: !Sub ${AWS::StackName}-rawdata-${AWS::AccountId}
+      Environment:
+        Variables:
+          processedData_S3_BUCKET_NAME: !Ref processedData
+          processedData_S3_BUCKET_ARN: !GetAtt processedData.Arn
+  generatePaystubs:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-generatePaystubs
+      Description: !Sub
+        - Stack ${StackTagName} Environment ${EnvironmentTagName} Function ${ResourceName}
+        - ResourceName: generatePaystubs
+      CodeUri: src/generatePaystubs
+      Handler: index.handler
+      Runtime: nodejs8.10
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - S3CrudPolicy:
+            BucketName: !Ref processedData
+        - S3CrudPolicy:
+            BucketName: !Ref paystubs
+      Environment:
+        Variables:
+          processedData_S3_BUCKET_NAME: !Ref processedData
+          processedData_S3_BUCKET_ARN: !GetAtt processedData.Arn
+          paystubs_S3_BUCKET_NAME: !Ref paystubs
+          paystubs_S3_BUCKET_ARN: !GetAtt paystubs.Arn
+  generateReport:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-generateReport
+      Description: !Sub
+        - Stack ${StackTagName} Environment ${EnvironmentTagName} Function ${ResourceName}
+        - ResourceName: generateReport
+      CodeUri: src/generateReport
+      Handler: index.handler
+      Runtime: nodejs8.10
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
+      Policies:
+        - AWSXrayWriteOnlyAccess
+        - S3CrudPolicy:
+            BucketName: !Ref paystubs
+      Environment:
+        Variables:
+          paystubs_S3_BUCKET_NAME: !Ref paystubs
+          paystubs_S3_BUCKET_ARN: !GetAtt paystubs.Arn
+  StatesExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - !Sub states.${AWS::Region}.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: StatesExecutionPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: '*'
+  MyStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      DefinitionString: !Sub
+        - |-
+          {
+            "Comment": "Payroll processing example.",
+            "StartAt": "processData",
+            "States": {
+              "processData": {
+                "Type": "Task",
+                "Resource": "${Lambda1}",
+                "Next": "generatePaystubs",
+                "Comment": "First task. Accept input at the beginning of the execution."
+              },
+              "generatePaystubs": {
+                "Type": "Task",
+                "Resource": "${Lambda2}",
+                "Next": "generateReport",
+                "Comment": "Second task."
+              },
+              "generateReport": {
+                "Type": "Task",
+                "Resource": "${Lambda3}",
+                "End": true,
+                "Comment": "Third/final task."
+              }
+            }
+          }
+        - Lambda1: !GetAtt processData.Arn
+          Lambda2: !GetAtt generatePaystubs.Arn
+          Lambda3: !GetAtt generateReport.Arn
+      RoleArn: !GetAtt StatesExecutionRole.Arn
+Parameters:
+  StackTagName:
+    Type: String
+    Description: Stack Name (injected by Stackery at deployment time)
+  EnvironmentTagName:
+    Type: String
+    Description: Environment Name (injected by Stackery at deployment time)
