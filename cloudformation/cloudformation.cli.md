@@ -1,3 +1,9 @@
+# CFN Stacks CLI
+```
+
+## validate template
+aws cloudformation validate-template --template-body file://sampletemplate.json
+
 aws cloudformation create-stack \
   --stack-name MyNetworkStack \
   --template-body file://my-network-template.yaml
@@ -17,11 +23,11 @@ $ for region in $regions; do ami=$(aws --region $region ec2 describe-images --fi
 # Get all ecs AMI
 $ regions=$(aws ec2 describe-regions --query "Regions[].RegionName" --output text)
 $ for region in $regions; do ami=$(aws --region $region ec2 describe-images --filters "Name=name,Values=amzn2-ami-ecs-hvm-2.0.20200319-x86_64-ebs" --query "Images[0].ImageId" --output "text"); printf "'$region':\n  ECSAMI: '$ami'\n"; done
+```
 
 
-# CFN Stacks CLI
 
-## Deploy
+### Deploy
 ```
 stack_parameters="NotificationEmail=$email"
 aws cloudformation deploy \
@@ -31,7 +37,7 @@ aws cloudformation deploy \
   --parameter-overrides "$stack_parameters"
 ```
 
-## Get output
+### Get output
 ```
 state_machine=$(aws cloudformation describe-stacks \
   --stack-name "$stack_name" \
@@ -46,7 +52,7 @@ sns_topic=$(aws cloudformation describe-stacks \
 echo sns_topic=$sns_topic
 ```
 
-## Post SNS message
+### Post SNS message
 ```
 aws sns publish \
   --topic-arn "$sns_topic" \
@@ -54,7 +60,7 @@ aws sns publish \
   --message "hello, world"
 ```
 
-# List AWS Accounts in AWS Organization
+### List AWS Accounts in AWS Organization
 
 ```
 aws organizations list-accounts \
@@ -63,4 +69,10 @@ aws organizations list-accounts \
   sort |
   cut -f2- |
   column -t -n -e -s$'\cI'
+```
+
+### create-stack and wait
+```
+aws cloudformation create-stack --stack-name example --template-body file://template.yml --capabilities CAPABILITY_IAM
+aws cloudformation wait stack-create-complete --stack-name example
 ```

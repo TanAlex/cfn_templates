@@ -1,0 +1,126 @@
+openapi: 3.0.0
+info:
+  version: '1.0'
+  title: "pit-jv-lambda-examples"
+  description: POC API
+  license:
+    name: MIT
+
+x-amazon-apigateway-request-validators:
+  Validate body:
+    validateRequestParameters: false
+    validateRequestBody: true
+  params:
+    validateRequestParameters: true
+    validateRequestBody: false
+  Validate body, query string parameters, and headers:
+    validateRequestParameters: true
+    validateRequestBody: true
+
+paths:
+  /execute:
+    options:
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: |
+            {
+              "statusCode" : 200
+            }
+        responses:
+          "default":
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers:
+                Fn::Sub: ${CorsHeaders}
+              method.response.header.Access-Control-Allow-Methods:
+                Fn::Sub: ${CorsMethods}
+              method.response.header.Access-Control-Allow-Origin:
+                Fn::Sub: ${CorsOrigin}
+            responseTemplates:
+              application/json: |
+                {}
+      responses:
+        200:
+          $ref: '#/components/responses/200Cors'
+    post:
+      x-amazon-apigateway-integration:
+        credentials:
+          Fn::GetAtt: [ ApiGatewayStepFunctionsRole, Arn ]
+        uri:
+          Fn::Sub: arn:aws:apigateway:${AWS::Region}:states:action/StartExecution
+        httpMethod: POST
+        type: aws
+        responses:
+          default:
+            statusCode: 200
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers:
+                Fn::Sub: ${CorsHeaders}
+              method.response.header.Access-Control-Allow-Origin:
+                Fn::Sub: ${CorsOrigin}
+          ".*CREATION_FAILED.*":
+            statusCode: 403
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers:
+                Fn::Sub: ${CorsHeaders}
+              method.response.header.Access-Control-Allow-Origin:
+                Fn::Sub: ${CorsOrigin}
+            responseTemplates:
+              application/json: $input.path('$.errorMessage')
+        requestTemplates:
+          application/json:
+            Fn::Sub: |-
+              {
+                "input": "$util.escapeJavaScript($input.json('$'))",
+                "name": "$context.requestId",
+                "stateMachineArn": "${Workflow}"
+              }
+      summary: Start workflow
+      responses:
+        200:
+          $ref: '#/components/responses/200Empty'
+        403:
+          $ref: '#/components/responses/Error'
+
+components:
+  schemas:
+    Error:
+      title: Error
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+  responses:
+    200Empty:
+      description: Default OK response
+
+    200Cors:
+      description: Default response for CORS method
+      headers:
+        Access-Control-Allow-Headers:
+          schema:
+            type: "string"
+        Access-Control-Allow-Methods:
+          schema:
+            type: "string"
+        Access-Control-Allow-Origin:
+          schema:
+            type: "string"
+
+    Error:
+      description: Error Response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      headers:
+        Access-Control-Allow-Headers:
+          schema:
+            type: "string"
+        Access-Control-Allow-Origin:
+          schema:
+            type: "string" 

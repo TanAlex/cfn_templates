@@ -1,0 +1,197 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::Serverless-2016-10-31'
+Description: POC Lambda Examples - Step Functions
+
+Parameters:
+  CorsOrigin:
+    Description: Header Access-Control-Allow-Origin
+    Default: "'http://localhost:3000'"
+    Type: String
+  CorsMethods:
+    Description: Header Access-Control-Allow-Headers
+    Default: "'*'"
+    Type: String
+  CorsHeaders:
+    Description: Header Access-Control-Allow-Headers
+    Default: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+    Type: String
+  SwaggerS3File:
+    Description: 'S3 "swagger.yaml" file location'
+    Default: "./swagger.yaml"
+    Type: String
+
+Resources:
+  LambdaRoleForRuleExecution:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-lambda-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: 'sts:AssumeRole'
+            Principal:
+              Service: lambda.amazonaws.com
+      Policies:
+        - PolicyName: WriteCloudWatchLogs
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+
+  ApiGatewayStepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: !Join ["", ["/", !Ref "AWS::StackName", "/"]]
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AllowApiGatewayServiceToAssumeRole
+            Effect: Allow
+            Action:
+              - 'sts:AssumeRole'
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+      Policies:
+        - PolicyName: CallStepFunctions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'states:StartExecution'
+                Resource:
+                  - !Ref Workflow
+
+  Start:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-start
+      Code: ../dist/src/step-functions
+      Handler: step-functions.start
+      Role: !GetAtt LambdaRoleForRuleExecution.Arn
+      Runtime: nodejs8.10
+      Timeout: 1
+
+  Wait3000:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-wait3000
+      Code: ../dist/src/step-functions
+      Handler: step-functions.wait3000
+      Role: !GetAtt LambdaRoleForRuleExecution.Arn
+      Runtime: nodejs8.10
+      Timeout: 4
+
+  Wait500:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-wait500
+      Code: ../dist/src/step-functions
+      Handler: step-functions.wait500
+      Role: !GetAtt LambdaRoleForRuleExecution.Arn
+      Runtime: nodejs8.10
+      Timeout: 2
+
+  End:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-end
+      Code: ../dist/src/step-functions
+      Handler: step-functions.end
+      Role: !GetAtt LambdaRoleForRuleExecution.Arn
+      Runtime: nodejs8.10
+      Timeout: 1
+
+  StateExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - !Sub states.${AWS::Region}.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: "StatesExecutionPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "lambda:InvokeFunction"
+                Resource:
+                  - !GetAtt Start.Arn
+                  - !GetAtt Wait3000.Arn
+                  - !GetAtt Wait500.Arn
+                  - !GetAtt End.Arn
+
+  Workflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub ${AWS::StackName}-state-machine
+      RoleArn: !GetAtt StateExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "AWS Step Functions Example",
+          "StartAt": "Start",
+          "Version": "1.0",
+          "States": {
+            "Start": {
+              "Type": "Task",
+              "Resource": "${Start.Arn}",
+              "Next": "Parallel State"
+            },
+            "Parallel State": {
+              "Type": "Parallel",
+              "Next": "End",
+              "Branches": [
+                {
+                  "StartAt": "Wait3000",
+                  "States": {
+                    "Wait3000": {
+                      "Type": "Task",
+                      "Resource": "${Wait3000.Arn}",
+                      "End": true
+                    }
+                  }
+                },
+                {
+                  "StartAt": "Wait500",
+                  "States": {
+                    "Wait500": {
+                      "Type": "Task",
+                      "Resource": "${Wait500.Arn}",
+                      "End": true
+                    }
+                  }
+                }
+              ]
+            },
+            "End": {
+              "Type": "Task",
+              "Resource": "${End.Arn}",
+              "End": true
+            }
+          }
+        }
+
+  RestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Name: !Sub ${AWS::StackName}-api
+      DefinitionBody:
+        'Fn::Transform':
+          Name: AWS::Include
+          Parameters:
+            # s3 location of the swagger file
+            Location: !Ref SwaggerS3File
