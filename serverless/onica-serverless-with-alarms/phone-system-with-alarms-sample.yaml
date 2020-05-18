@@ -1,0 +1,110 @@
+
+service: msp-phone-system
+plugins:
+  - serverless-python-requirements
+  - serverless-plugin-aws-alerts
+  - serverless-pseudo-parameters
+
+custom:
+  stage: ${opt:stage, self:provider.stage}
+  config: ${file(config-${self:custom.stage}-us-west-2.yml)}
+  tableThroughputs:
+    prod: 1
+    default: 1
+  tableThroughput: ${self:custom.tableThroughputs.${self:custom.stage}, self:custom.tableThroughputs.default}
+  pythonRequirements:
+    dockerizePip: non-linux
+  alerts:
+    dashboards: false
+    topics:
+      ok: arn:aws:sns:#{AWS::Region}:#{AWS::AccountId}:Onica-msp-phone-system-${self:custom.stage}-Crit
+      alarm: arn:aws:sns:#{AWS::Region}:#{AWS::AccountId}:Onica-msp-phone-system-${self:custom.stage}-Crit
+      insufficientData: arn:aws:sns:#{AWS::Region}:#{AWS::AccountId}:Onica-msp-phone-system-${self:custom.stage}-Crit
+    definitions:
+      functionInvocations:
+        namespace: 'AWS/Lambda'
+        metric: Invocations
+        threshold: 100
+        statistic: Sum
+        period: 3600
+        evaluationPeriods: 1
+        comparisonOperator: GreaterThanOrEqualToThreshold
+        treatMissingData: notBreaching
+      functionErrors:
+        namespace: 'AWS/Lambda'
+        metric: Errors
+        threshold: 1
+        statistic: Sum
+        period: 3600
+        evaluationPeriods: 1
+        comparisonOperator: GreaterThanOrEqualToThreshold
+        treatMissingData: notBreaching
+      functionDuration:
+        namespace: 'AWS/Lambda'
+        metric: Duration
+        threshold: 27000
+        statistic: Average
+        period: 3600
+        evaluationPeriods: 1
+        comparisonOperator: GreaterThanOrEqualToThreshold
+        treatMissingData: notBreaching
+      functionThrottles:
+        namespace: 'AWS/Lambda'
+        metric: Throttles
+        threshold: 1
+        statistic: Sum
+        period: 3600
+        evaluationPeriods: 1
+        comparisonOperator: GreaterThanOrEqualToThreshold
+        treatMissingData: notBreaching
+    alarms:
+      - functionThrottles
+      - functionErrors
+      - functionInvocations
+      - functionDuration
+
+
+provider:
+  name: aws
+  runtime: python3.7
+  region: us-west-2
+  deploymentBucket:
+    name: ${self:custom.config.bucket_name}
+  deploymentPrefix: ${self:custom.stage}
+  logRetentionInDays: 14
+  memorySize: 1024
+  timeout: 30
+  environment:
+    tableStage: ${self:custom.stage}
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:*
+      Resource:
+        - ${cf:msp-phone-system-common-dynamodb-active-conf-roooms-table.mspActiveTwilioConfRoomsDDBTableArn}
+    - Effect: Allow
+      Action:
+        - ssm:GetParameter
+      Resource:
+        - arn:aws:ssm:#{AWS::Region}:#{AWS::AccountId}:parameter/msp_phone_system/*
+functions:
+  CustomerPodDirectCallDefault:
+    handler: CustomerPodDirectCallDefault.hello
+    environment:
+      Customer_Name: ${self:custom.config.customer_name}
+    events:
+      - http:
+          path: CustomerPodDirectCallDefault
+          method: get
+  processPress1Action:
+    handler: processPress1Action.hello
+    environment:
+      CA_engineer_number: ${self:custom.config.ca_engineer_number}
+      US_engineer_number: ${self:custom.config.us_engineer_number}
+      Customer_Name: ${self:custom.config.customer_name}
+      routing_key: ${self:custom.config.routing_key}
+      Dynamo_Table_Name: ${cf:msp-phone-system-common-dynamodb-active-conf-roooms-table.mspActiveTwilioConfRoomsDDBTableName}
+    events:
+      - http:
+          path: processPress1Action
+          method: post

@@ -1,0 +1,9 @@
+.ipynb_checkpoints
+*.egg-info
+.idea
+__pycache__
+.DS_Store
+taskcat_outputs/
+ci/taskcat-dev*
+ci/taskcat_project_override.json
+maint/
