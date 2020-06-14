@@ -1,0 +1,26 @@
+#jenkins-params.yaml
+# helm install --name my-jenkins-deployment stable/jenkins --version 0.16.1 --values jenkins-params.yaml
+Master:
+  Image: jenkins/jenkins
+  ImageTag: 2.121
+  ServiceType: LoadBalancer
+  ServicePort: 80
+  AdminPassword: admin_313
+  InstallPlugins:
+    - kubernetes:1.5.2
+    - workflow-aggregator:2.5
+    - workflow-job:2.21
+    - credentials-binding:1.16
+    - git:3.9.0
+    - kubernetes-cli:1.0.0
+    - custom-tools-plugin:0.5
+    - bitbucket:1.1.7
+rbac:
+  install: true
+  apiVersion: v1
+Agent:
+  Image: jenkins/jnlp-slave
+  ImageTag: 3.19-1
+  volumes:
+  - type: EmptyDir
+    mountPath: /usr/local/sbin

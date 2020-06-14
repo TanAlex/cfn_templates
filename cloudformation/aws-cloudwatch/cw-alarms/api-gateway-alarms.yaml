@@ -1,0 +1,228 @@
+# https://bitbucket.org/corpinfo/candorail-devops/src/master/cloudformation/apigateway-alarms/cw-alarm-apigateway.yml
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudWatch Alarms - ApiGatway - (1.0.1)
+
+Parameters:
+  CustomerName:
+    Type: String
+    Description: Name of the Customer
+  ApplicationName:
+    Type: String
+    Description: Name of the Application
+  EnvironmentName:
+    Type: String
+    Description: Name of the Environment
+    Default: dev
+  ApiName:
+    Type: String
+    Description: Name of the ApiGateay
+  AlarmSnsTopic:
+    Type: CommaDelimitedList
+    Description: Comma delimited list of SNS Topic ARNs for alarm notifications.
+  ApplicationRunbookUrl:
+    Type: String
+    Description: The URL for runbook associated with this applicaiton
+    Default: NO_URL
+  AwsAccountAlias:
+    Description: AWS Account Alias
+    Type: String
+  4XXErrorAlarmThreshold:
+    Type: Number
+    Description: Threshold of 4xxErrorAlarm
+    Default: 0
+  5XXErrorAlarmThreshold:
+    Type: Number
+    Description: Threshold of 5xxErrorAlarm
+    Default: 0
+  IntegrationLatencyAlarmThreshold:
+    Type: Number
+    Description: Threshold of Integration Latency Alarm
+    Default: 0
+  LatencyAlarmThreshold:
+    Type: Number
+    Description: Threshold of Latency Alarm
+    Default: 0
+  CountAlarmThreshold:
+    Type: Number
+    Description: Threshold of Count Alarm
+    Default: 0
+  TreatMissingData:
+    Type: String
+    Description: How missing datapoints are treated
+    Default: notBreaching
+    AllowedValues:
+      - missing
+      - notBreaching
+      - breaching
+      - ignore
+
+Resources:
+  4XXErrorAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ActionsEnabled: true
+      AlarmActions: !Ref AlarmSnsTopic
+      AlarmDescription: !Sub >-
+        {
+              "customer": "${CustomerName}",
+              "region": "us-west-2",
+              "description": "ApiGateway 4XXError",
+              "alarm_name": "4XXError-Alarm-${ApiName}",
+              "appname": "${ApplicationName}",
+              "environment": "${EnvironmentName}",
+              "URL": "${ApplicationRunbookUrl}",
+              "account_id": "${AWS::AccountId}",
+              "account_name": "${AwsAccountAlias}",
+              "type": "ApiGateway",
+              "Api_Name": "${ApiName}"
+        }
+      AlarmName: !Sub >-
+        4XXError-Alarm-${ApiName}
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiName
+          Value: !Ref ApiName
+      EvaluationPeriods: 1
+      MetricName: 4XXError
+      Namespace: AWS/ApiGateway
+      OKActions: !Ref AlarmSnsTopic
+      Period: 300
+      Statistic: Average
+      Threshold: !Ref 4XXErrorAlarmThreshold
+      TreatMissingData: !Ref TreatMissingData
+
+  5XXErrorAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ActionsEnabled: true
+      AlarmActions: !Ref AlarmSnsTopic
+      AlarmDescription: !Sub >-
+        {
+              "customer": "${CustomerName}",
+              "region": "us-west-2"
+              "description": "Api Gateway 5XXError",
+              "alarm_name": "5XXError-Alarm-${ApiName}",
+              "appname": "${ApplicationName}",
+              "environment": "${EnvironmentName}",
+              "URL": "${ApplicationRunbookUrl}",
+              "account_id": "${AWS::AccountId}",
+              "account_name": "${AwsAccountAlias}",
+              "type": "ApiGateway",
+              "Api_Name": "${ApiName}"
+        }
+      AlarmName: !Sub >-
+        5XXError-Alarm-${ApiName}
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiName
+          Value: !Ref ApiName
+      EvaluationPeriods: 1
+      MetricName: 5XXError
+      Namespace: AWS/ApiGateway
+      OKActions: !Ref AlarmSnsTopic
+      Period: 300
+      Statistic: Average
+      Threshold: !Ref 5XXErrorAlarmThreshold
+      TreatMissingData: !Ref TreatMissingData
+
+  CountAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ActionsEnabled: true
+      AlarmActions: !Ref AlarmSnsTopic
+      AlarmDescription: !Sub >-
+        {
+              "customer": "${CustomerName}",
+              "region": "us-west-2"
+              "description": "Api Gateway Count Alarm",
+              "alarm_name": "Count-Alarm-${ApiName}",
+              "appname": "${ApplicationName}",
+              "environment": "${EnvironmentName}",
+              "URL": "${ApplicationRunbookUrl}",
+              "account_id": "${AWS::AccountId}",
+              "account_name": "${AwsAccountAlias}",
+              "type": "ApiGateway",
+              "Api_Name": "${ApiName}"
+        }
+      AlarmName: !Sub >-
+        Count-Alarm-${ApiName}
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiName
+          Value: !Ref ApiName
+      EvaluationPeriods: 1
+      MetricName: Count
+      Namespace: AWS/ApiGateway
+      OKActions: !Ref AlarmSnsTopic
+      Period: 300
+      Statistic: Average
+      Threshold: !Ref CountAlarmThreshold
+      TreatMissingData: !Ref TreatMissingData
+
+  LatencyAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ActionsEnabled: true
+      AlarmActions: !Ref AlarmSnsTopic
+      AlarmDescription: !Sub >-
+        {
+              "customer": "${CustomerName}",
+              "region": "us-west-2"
+              "description": "Api Gateway Latency Alarm",
+              "alarm_name": "Latency-Alarm-${ApiName}",
+              "appname": "${ApplicationName}",
+              "environment": "${EnvironmentName}",
+              "URL": "${ApplicationRunbookUrl}",
+              "account_id": "${AWS::AccountId}",
+              "account_name": "${AwsAccountAlias}",
+              "type": "ApiGateway",
+              "Api_Name": "${ApiName}"
+        }
+      AlarmName: !Sub >-
+        Latency-Alarm-${ApiName}
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiName
+          Value: !Ref ApiName
+      EvaluationPeriods: 1
+      MetricName: Latency
+      Namespace: AWS/ApiGateway
+      OKActions: !Ref AlarmSnsTopic
+      Period: 300
+      Statistic: Average
+      Threshold: !Ref LatencyAlarmThreshold
+      TreatMissingData: !Ref TreatMissingData
+
+  IntegrationLatencyAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      ActionsEnabled: true
+      AlarmActions: !Ref AlarmSnsTopic
+      AlarmDescription: !Sub >-
+        {
+              "customer": "${CustomerName}",
+              "region": "us-west-2"
+              "description": "Api Gateway Integration Latency Alarm",
+              "alarm_name": "IntegrationLatency-Alarm-${ApiName}",
+              "appname": "${ApplicationName}",
+              "environment": "${EnvironmentName}",
+              "URL": "${ApplicationRunbookUrl}",
+              "account_id": "${AWS::AccountId}",
+              "account_name": "${AwsAccountAlias}",
+              "type": "ApiGateway",
+              "Api_Name": "${ApiName}"
+        }
+      AlarmName: !Sub >-
+        IntegrationLatency-Alarm-${ApiName}
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiName
+          Value: !Ref ApiName
+      EvaluationPeriods: 1
+      MetricName: IntegrationLatency
+      Namespace: AWS/ApiGateway
+      OKActions: !Ref AlarmSnsTopic
+      Period: 300
+      Statistic: Average
+      Threshold: !Ref IntegrationLatencyAlarmThreshold
+      TreatMissingData: !Ref TreatMissingData

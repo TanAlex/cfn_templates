@@ -1,0 +1,39 @@
+# nodejs.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nodejs-service
+spec:
+ selector:
+    app:  nodejs
+ ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app:  nodejs
+  name: nodejs-deployment
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: nodejs
+    spec:
+      containers:
+      - image: node:9.11
+        name: kubecont-nodejs
+        command: ["node", "/usr/src/app/index.js"]
+        ports:
+        - containerPort: 8080 
+        volumeMounts:
+        - name: app-volume
+          mountPath: /usr/src/app     
+      volumes:
+        - name: app-volume
+          configMap:
+            name: nodejs-app

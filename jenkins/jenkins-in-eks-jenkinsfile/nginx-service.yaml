@@ -1,0 +1,59 @@
+#nginx-reverseproxy.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-reverseproxy-service
+spec:
+ selector:
+    app:  nginx-reverseproxy
+ type: LoadBalancer  #LB to expose the service and get an external IP address
+ ports:
+  - name: http
+    port: 80
+    protocol: TCP
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app:  nginx-reverseproxy
+  name: nginx-reverseproxy-deployment
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: nginx-reverseproxy
+    spec:
+      containers:
+      - image: nginx:1.13
+        name: kubecont-nginx
+        ports:
+        - containerPort: 80 
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/nginx/conf.d     
+      volumes:
+        - name: config-volume
+          configMap:
+            name: nginx-reverseproxy-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-reverseproxy-config
+data:
+  default.conf: |-
+    server {
+     server_name yourhostname.com;
+     listen 80;
+     #deny access to .htaccess files, if Apache's document root
+     #concurs with nginx's one
+     #
+     location ~ /\.ht {
+         deny  all;
+     }
+location / {
+         proxy_pass http://nodejs-service:8080; #this is the service described in nodejs.yaml
+     }
+    }
