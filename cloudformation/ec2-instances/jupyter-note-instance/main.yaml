@@ -1,0 +1,22 @@
+namespace: ${namespace}
+stacker_bucket: ${namespace}-${region}
+
+
+sys_path: ./
+
+common_parameters: &common_parameters
+  EnvironmentName: ${namespace}
+
+stacks:
+  jupyter-instance:
+    template_path: ./cfn-template.yaml
+    variables:
+      <<: *common_parameters
+      KeyName: ${KeyName}
+      InstanceType: ${InstanceType}
+      VpcId: ${VpcId}
+      SubnetId: ${SubnetId}
+      JupyterPort: ${JupyterPort}
+      JupyterLocation: ${JupyterLocation}
+      SSHLocation: ${SSHLocation}
+      S3BucketName: ${S3BucketName}

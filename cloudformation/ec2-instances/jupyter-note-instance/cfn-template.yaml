@@ -1,0 +1,309 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation Template to build a Jupyter 4.1.0 environment with
+  IPython Clusters and NVIDIA CUDA support. Support for Python 2, R and Julia is included.
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: p2.xlarge
+    AllowedValues:
+    - t2.micro
+    - t2.medium
+    - m4.large
+    - c4.large
+    - c4.xlarge
+    - c4.2xlarge
+    - c4.4xlarge
+    - c4.8xlarge
+    - g2.2xlarge
+    - g2.8xlarge
+    - r3.large
+    - r3.xlarge
+    - r3.2xlarge
+    - r3.4xlarge
+    - r3.8xlarge
+    - p2.xlarge
+    - p2.8xlarge
+    - p2.16xlarge
+    ConstraintDescription: must be a valid EC2 instance type.
+  VpcId:
+    Description: VPC id to deploy to
+    Type: AWS::EC2::VPC::Id
+    ConstraintDescription: must be an existing VPC.
+  SubnetId:
+    Description: Subnet id to deploy to
+    Type: AWS::EC2::Subnet::Id
+    ConstraintDescription: must be an existing subnet.
+  JupyterPort:
+    Description: The port used by the Jupyter server
+    Type: String
+    MinLength: '4'
+    MaxLength: '4'
+    Default: '8080'
+    AllowedPattern: "(\\d{1,4})"
+    ConstraintDescription: Must be a valid port number.
+  JupyterLocation:
+    Description: The IP address range that can be used connect to the Jupyter server
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  SSHLocation:
+    Description: The IP address range that can be used to SSH to the EC2 instances
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  S3BucketName:
+    Description: S3 Bucket name to store data
+    Type: String
+    Default: lab-test-bucket-01
+Mappings:
+  AWSInstanceType2Arch:
+    t2.nano:
+      Arch: HVM64
+    t2.micro:
+      Arch: HVM64
+    t2.small:
+      Arch: HVM64
+    t2.medium:
+      Arch: HVM64
+    t2.large:
+      Arch: HVM64
+    m3.medium:
+      Arch: HVM64
+    m3.large:
+      Arch: HVM64
+    m3.xlarge:
+      Arch: HVM64
+    m3.2xlarge:
+      Arch: HVM64
+    m4.large:
+      Arch: HVM64
+    m4.xlarge:
+      Arch: HVM64
+    m4.2xlarge:
+      Arch: HVM64
+    m4.4xlarge:
+      Arch: HVM64
+    m4.10xlarge:
+      Arch: HVM64
+    m4.16xlarge:
+      Arch: HVM64
+    c3.large:
+      Arch: HVM64
+    c3.xlarge:
+      Arch: HVM64
+    c3.2xlarge:
+      Arch: HVM64
+    c3.4xlarge:
+      Arch: HVM64
+    c3.8xlarge:
+      Arch: HVM64
+    c4.large:
+      Arch: HVM64
+    c4.xlarge:
+      Arch: HVM64
+    c4.2xlarge:
+      Arch: HVM64
+    c4.4xlarge:
+      Arch: HVM64
+    c4.8xlarge:
+      Arch: HVM64
+    g2.2xlarge:
+      Arch: HVMG2
+    g2.8xlarge:
+      Arch: HVMG2
+    p2.xlarge:
+      Arch: HVMP2
+    p2.8xlarge:
+      Arch: HVMP2
+    p2.16xlarge:
+      Arch: HVMP2
+    r3.large:
+      Arch: HVM64
+    r3.xlarge:
+      Arch: HVM64
+    r3.2xlarge:
+      Arch: HVM64
+    r3.4xlarge:
+      Arch: HVM64
+    r3.8xlarge:
+      Arch: HVM64
+    i2.xlarge:
+      Arch: HVM64
+    i2.2xlarge:
+      Arch: HVM64
+    i2.4xlarge:
+      Arch: HVM64
+    i2.8xlarge:
+      Arch: HVM64
+    d2.xlarge:
+      Arch: HVM64
+    d2.2xlarge:
+      Arch: HVM64
+    d2.4xlarge:
+      Arch: HVM64
+    d2.8xlarge:
+      Arch: HVM64
+    hi1.4xlarge:
+      Arch: HVM64
+    hs1.8xlarge:
+      Arch: HVM64
+    cr1.8xlarge:
+      Arch: HVM64
+    cc2.8xlarge:
+      Arch: HVM64
+  AWSRegionArch2AMI:
+    ap-southeast-2:
+      HVM64: ami-08bf49c7b3a0c761e
+      HVMG2: ami-0d07a9aa720fe8b32
+    us-east-2:
+      HVM64: ami-08bf49c7b3a0c761e
+      HVMP2: ami-0d07a9aa720fe8b32
+    us-east-1:
+      HVM64: ami-08bf49c7b3a0c761e
+      HVMP2: ami-0d07a9aa720fe8b32
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+        BucketName: !Ref S3BucketName
+  IamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      - arn:aws:iam::aws:policy/service-role/AmazonSSMMaintenanceWindowRole
+      - arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+  RolePolicies: 
+    Type: "AWS::IAM::Policy"
+    Properties: 
+      PolicyName: "IamRolePolicy"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Action: "s3:*"
+            Resource: 
+              - Fn::Sub: arn:aws:s3:::${S3BucketName}/*
+              - Fn::Sub: arn:aws:s3:::${S3BucketName}
+          -
+            Effect: "Allow"
+            Action: "glue:*"
+            Resource: 
+              - Fn::Sub: arn:aws:glue:us-east-2:${AWS::AccountId}:*
+      Roles: 
+        - 
+          Ref: IamRole
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - Ref: IamRole
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType:
+        Ref: InstanceType
+      SecurityGroupIds:
+      - Ref: InstanceSecurityGroup
+      IamInstanceProfile:
+        Ref: InstanceProfile
+      KeyName:
+        Ref: KeyName
+      SubnetId:
+        Ref: SubnetId
+      ImageId:
+        Fn::FindInMap:
+        - AWSRegionArch2AMI
+        - Ref: AWS::Region
+        - Fn::FindInMap:
+          - AWSInstanceType2Arch
+          - Ref: InstanceType
+          - Arch
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            #!/bin/bash
+            #su - jupyter -c '~/anaconda2/bin/ipcluster nbextension enable;
+            #~/anaconda2/bin/jupyter notebook --ip `curl http://169.254.169.254/latest/meta-data/public-hostname` --port 8080 --no-browser &'
+            # source activate python3
+            aws configure set region us-east-2 --profile default
+            /home/ubuntu/anaconda3/envs/python3/bin/jupyter notebook --ip 0.0.0.0 --port 8888 &
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22 and Jupyter access via user
+        specified port
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp:
+          Ref: SSHLocation
+      - IpProtocol: tcp
+        FromPort:
+          Ref: JupyterPort
+        ToPort:
+          Ref: JupyterPort
+        CidrIp:
+          Ref: JupyterLocation
+      VpcId:
+        Ref: VpcId
+Outputs:
+  InstanceId:
+    Description: InstanceId of the newly created EC2 instance
+    Value:
+      Ref: EC2Instance
+  AZ:
+    Description: Availability Zone of the newly created EC2 instance
+    Value:
+      Fn::GetAtt:
+      - EC2Instance
+      - AvailabilityZone
+  PublicDNS:
+    Description: Public DNS name of the newly created EC2 instance
+    Value:
+      Fn::GetAtt:
+      - EC2Instance
+      - PublicDnsName
+  PublicIP:
+    Description: Public IP address of the newly created EC2 instance
+    Value:
+      Fn::GetAtt:
+      - EC2Instance
+      - PublicIp
+  JupyterURL:
+    Description: URL for Jupyter on the instance
+    Value:
+      Fn::Join:
+      - ''
+      - - http://
+        - Fn::GetAtt:
+          - EC2Instance
+          - PublicDnsName
+        - ":"
+        - Ref: JupyterPort

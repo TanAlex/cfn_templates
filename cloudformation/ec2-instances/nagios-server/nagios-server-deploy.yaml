@@ -1,0 +1,38 @@
+sys_path: ./
+namespace: ${ns}
+stacker_bucket: ${stacker_bucket}
+stacker_bucket_region: us-east-1
+common_parameters: &common_parameters
+  EnvironmentName: ${EnvironmentName}
+  Description: ${Description}
+  PubSubnet1: ${PubSubnet1}
+  PubSubnet2: ${PubSubnet2}
+  KeyName: ${KeyName}
+  AlertTopicArn: ${AlertTopicArn}
+  
+stacks:
+  - name: nagios-server-infrastructure
+    template_path: ./nagios-infrastructure.template
+    enabled: true
+    variables:
+      << : *common_parameters
+      SSLCertificateARN: ${SSLCertificateARN}
+      Vpcid: ${Vpcid}
+      VpnSecurityGroupId: ${VpnSecurityGroupId}
+
+  - name: nagios-server
+    template_path: ./nagios-server.template
+    enabled: true
+    variables:
+      << : *common_parameters
+      AppSubnets: ${AppSubnets}
+      ELBNames: ${xref nagios-server-infrastructure::LoadBalancer}
+      HealthCheckType: ${HealthCheckType}
+      HealthCheckGracePeriod: 2400
+      HealthCheckTarget: HTTP:80
+      InstanceProfile: ${xref nagios-server-infrastructure::CustomerInstanceProfile}
+      InstanceRootSize: 80
+      InstanceType: ${InstanceType}
+      InternalServerSecurityGroupId: ${xref nagios-server-infrastructure::ServerSecurityGroup}
+      VpnSecurityGroupId: ${VpnSecurityGroupId}
+      ServerAMI: ${ServerAMI}

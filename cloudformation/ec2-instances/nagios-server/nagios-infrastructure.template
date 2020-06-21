@@ -1,0 +1,264 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Nagios Server Infrastructure (1.0.0)
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2-VPC KeyPair
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: sturdy_hubble_id_rsa
+  EnvironmentName:
+    Description: Environment name that this customer is in
+    Type: String
+    AllowedValues:
+    - euprod1
+    - naprod1
+    - auprod1
+  SSLCertificateARN:
+    Description: An SSL certificate for nagios.cloud.iscloud.io
+    Type: String
+    AllowedValues:
+      - arn:aws:acm:us-east-1:800246199194:certificate/845600dc-277b-4186-b8be-92265c64c745
+      - arn:aws:acm:eu-west-1:800246199194:certificate/9241ec70-d62f-4b1b-ad93-dc1965a38ad2
+      - arn:aws:acm:ap-southeast-2:800246199194:certificate/8de2277b-04f9-4aa5-b06e-3318babf536f
+    Default: arn:aws:acm:us-east-1:800246199194:certificate/845600dc-277b-4186-b8be-92265c64c745
+    ConstraintDescription: Please choose the proper ARN for the region into which you're launching
+  Vpcid:
+    Description: The ID of the VPC associated with EnvironmentName.
+    Type: AWS::EC2::VPC::Id
+  PubSubnet1:
+    Description: Subnets in which the LB will be deployed.
+    Type: String
+  PubSubnet2:
+    Description: Subnets in which the LB will be deployed.
+    Type: String
+  VpnSecurityGroupId:
+    Description: The client security group used by the IPSec VPN Cluster associated
+      with this customer
+    Type: AWS::EC2::SecurityGroup::Id
+  # CustomerName:
+  #   Description: Customer name
+  #   Type: String
+  #   AllowedPattern: "[a-z]*"
+  #   ConstraintDescription: Customer name may only contain lower case letters. Uppercase,
+  #     numbers, and special characters are not allowed.
+Mappings: {}
+Resources:
+  LBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription:
+        Fn::Join:
+        - "-"
+        - - nagios
+          - lb
+          - Ref: EnvironmentName
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - "-"
+          - - nagios
+            - lb
+            - Ref: EnvironmentName
+      VpcId:
+        Ref: Vpcid
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '443'
+        ToPort: '443'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: "-1"
+        FromPort: '0'
+        ToPort: '65535'
+        CidrIp: 0.0.0.0/0
+  ServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription:
+        Fn::Join:
+        - "-"
+        - - nagios
+          - secgroup
+          - Ref: EnvironmentName
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - "-"
+          - - nagios
+            - secgroup
+            - Ref: EnvironmentName
+      VpcId:
+        Ref: Vpcid
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '443'
+        ToPort: '443'
+        SourceSecurityGroupId:
+          Ref: LBSecurityGroup
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        SourceSecurityGroupId:
+          Ref: LBSecurityGroup
+      SecurityGroupEgress:
+      - IpProtocol: "-1"
+        FromPort: '0'
+        ToPort: '65535'
+        CidrIp: 0.0.0.0/0
+  ServerSecurityGroupIngress1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId:
+        Ref: ServerSecurityGroup
+      IpProtocol: tcp
+      FromPort: '22'
+      ToPort: '22'
+      SourceSecurityGroupId:
+        Ref: VpnSecurityGroupId
+    DependsOn:
+    - ServerSecurityGroup
+  ServerSecurityGroupIngress2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId:
+        Ref: ServerSecurityGroup
+      IpProtocol: tcp
+      FromPort: '22'
+      ToPort: '22'
+      SourceSecurityGroupId:
+        Ref: ServerSecurityGroup
+    DependsOn:
+    - ServerSecurityGroup
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      SecurityGroups:
+      - Ref: LBSecurityGroup
+      Tags:
+      - Key: Name
+        Value: Nagios-Server-LB
+      Instances: []
+      LBCookieStickinessPolicy:
+      - PolicyName: MyLBPolicy
+        CookieExpirationPeriod: '3600'
+      Subnets:
+      - Ref: PubSubnet1
+      - Ref: PubSubnet2
+      Listeners:
+      - LoadBalancerPort: '443'
+        InstancePort: '80'
+        SSLCertificateId:
+          Ref: SSLCertificateARN
+        Protocol: HTTPS
+        PolicyNames:
+        - MyLBPolicy
+        - ELBSecurityPolicy-2016-08
+      HealthCheck:
+        Target: HTTP:80/
+        HealthyThreshold: '3'
+        UnhealthyThreshold: '5'
+        Interval: '10'
+        Timeout: '5'
+      ConnectionSettings:
+        IdleTimeout: '3600'
+
+  CustomerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        - "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+        - "arn:aws:iam::aws:policy/service-role/AmazonSSMMaintenanceWindowRole"
+        - "arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName:
+          Fn::Join:
+          - "-"
+          - - nagios-serverrole
+            - Ref: EnvironmentName
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - s3:DeleteObject
+            - s3:Get*
+            - s3:List*
+            - s3:Put*
+            Resource:
+            - Fn::Join:
+              - ''
+              - - arn:aws:s3:::hubble-config-
+                - Ref: EnvironmentName
+                - "/configs-"
+                - "nagios-server"
+                - "/*"
+          - Effect: Allow
+            Action:
+            - s3:ListAllMyBuckets
+            Resource:
+            - "*"
+
+  CustomerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - Ref: CustomerRole
+  AddR53EntryApp:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: "/hostedzone/ZOS3GQV0L8WCG"
+      Comment:
+        Fn::Join:
+        - "-"
+        - - 'Nagios server CNAME Entry for LB '
+          - Ref: EnvironmentName
+      Name:
+        Fn::Join:
+        - ''
+        - - "nagios"
+          - ".cloud.iscloud.io"
+      Type: CNAME
+      TTL: '60'
+      ResourceRecords:
+      - Fn::GetAtt:
+        - LoadBalancer
+        - DNSName
+Outputs:
+  CustomerInstanceProfile:
+    Description: Instance Profile Id
+    Value:
+      Ref: CustomerInstanceProfile
+  LBSecurityGroup:
+    Description: Instance Profile Id
+    Value:
+      Ref: LBSecurityGroup
+  LoadBalancer:
+    Description: Load Balancer
+    Value:
+      Ref: LoadBalancer
+  ServerSecurityGroup:
+    Description: Server Security Group
+    Value:
+      Ref: ServerSecurityGroup
+  CustomerRole:
+    Description: Customer Role
+    Value:
+      Ref: CustomerRole
