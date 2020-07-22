@@ -1,0 +1,1494 @@
+{
+  "AWSTemplateFormatVersion":"2010-09-09",
+  "Description":"Creates EC2 instances, S3 bucket, CodeDeploy and CodePipeline resources for a cross region deployment solution",
+  "Parameters":{
+    "S3SourceCodeBucket": {
+      "Type" : "String",
+      "Description" : "Name of the S3 bucket where source code is placed in this region"
+    },
+    "S3SourceCodeObject": {
+      "Type" : "String",
+      "Description" : "Application source code object name in S3."
+    },
+    "TagKey": {
+      "Description": "The EC2 tag key that identifies this as a target for deployments.",
+      "Type": "String",
+	  "Default": "Name",
+      "AllowedPattern": "[\\x20-\\x7E]*",
+      "ConstraintDescription": "Can contain only ASCII characters."
+    },
+    "TagValue": {
+      "Description": "The EC2 tag value that identifies this as a target for deployments.",
+      "Type": "String",
+	  "Default": "Beta",
+      "AllowedPattern": "[\\x20-\\x7E]*",
+      "ConstraintDescription": "Can contain only ASCII characters."
+    },
+    "KeyPairName": {
+      "Description": "Name of an existing Amazon EC2 key pair to enable SSH or RDP access to the instances.",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "255",
+      "AllowedPattern": "[\\x20-\\x7E]*",
+      "ConstraintDescription": "KeyPairName is a required Field and can contain only ASCII characters."
+    },
+    "InstanceType": {
+      "Description": "Amazon EC2 instance type.",
+      "Type": "String",
+      "Default": "t1.micro",
+      "ConstraintDescription": "Must be a valid Amazon EC2 instance type."
+    },
+    "InstanceCount": {
+      "Description": "Number of Amazon EC2 instances (Must be a number between 1 and 3).",
+      "Type": "Number",
+      "Default": "1",
+      "ConstraintDescription": "Must be a number between 1 and 3.",
+      "MinValue": "1",
+      "MaxValue": "3"
+    },
+    "OperatingSystem": {
+      "Description": "Amazon EC2 operating system type (Linux or Windows).",
+      "Type": "String",
+      "Default": "Linux",
+      "ConstraintDescription": "Must be Windows or Linux.",
+      "AllowedValues": [
+        "Linux",
+        "Windows"
+      ]
+    },
+    "SSHLocation": {
+      "Description": "The IP address range that can be used to connect using SSH or RDP to the Amazon EC2 instances.",
+      "Type": "String",
+      "MinLength": "9",
+      "MaxLength": "18",
+      "Default": "0.0.0.0/0",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "Must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+
+    "AppName": {
+      "Type" : "String",
+      "Description" : "Name of the application.",
+      "MinLength": "2",
+      "MaxLength": "40",
+      "Default" : "xrdeployment",
+      "AllowedPattern" : "[a-z0-9][-. a-z0-9]*",
+      "ConstraintDescription": "Must be between 2 and 40 characters long, lowercase and may contain alphanumeric characters, hyphens (-), and dots (.), but must start with alphanumeric."
+    },
+    "DestinationRegion" : {
+      "Description" : "Specify your destination region. Souce code will be deployed in this region after successful execution",
+      "Default" : "none",
+      "Type" : "String",
+      "AllowedValues" : ["us-east-1", "us-west-2", "eu-west-1", "none"]
+    },
+    "DestinationBucket" : {
+      "Description" : "Specify your destination bucket. Make sure it exists and you have write permissions to this; write 'none' if there is no destination",
+      "Type" : "String"
+    }
+  },
+  "Metadata" : {
+    "AWS::CloudFormation::Interface" : {
+      "ParameterGroups" : [
+        {
+          "Label" : { "default" : "Application Configuration" },
+          "Parameters" : [ "AppName", "InstanceCount", "InstanceType", "OperatingSystem" ]
+        },
+        {
+          "Label" : { "default" : "Source and Destination" },
+          "Parameters" : [ "S3SourceCodeBucket", "S3SourceCodeObject", "DestinationRegion", "DestinationBucket" ]
+        },
+        {
+          "Label" : { "default" : "SSH & HTTP Configuration" },
+          "Parameters" : [ "KeyPairName", "SSHLocation" ]
+        },
+        {
+          "Label" : { "default" : "Environment Tags" },
+          "Parameters" : [ "TagKey", "TagValue" ]
+        }
+      ]
+    }
+  },
+  "Mappings": {
+    "RegionOS2AMI": {
+      "us-east-1": {
+        "Linux": "ami-246ed34c",
+        "Windows": "ami-ac3a1cc4"
+      },
+      "eu-west-1":{
+            "Linux":"ami-672ce210",
+            "Windows":"ami-29eb7e5a"
+         },
+      "us-west-2": {
+        "Linux": "ami-55a7ea65",
+        "Windows": "ami-7f634e4f"
+      }
+    },
+    "OS2SSHPort": {
+      "Linux": {
+        "SSHPort": "22"
+      },
+      "Windows": {
+        "SSHPort": "3389"
+      }
+    }
+  },
+  "Conditions":{
+    "CreateCopyFunction" : { "Fn::Not" : [{ "Fn::Equals" : [{"Ref" : "DestinationRegion"}, "none"]}]},
+    "NoCopyFunction" : { "Fn::Equals" : [{"Ref" : "DestinationRegion"}, "none"]},
+    "LaunchInstance2": {
+      "Fn::Or": [
+        {
+          "Fn::Equals": [
+            "2",
+            {
+              "Ref": "InstanceCount"
+            }
+          ]
+        },
+        {
+          "Fn::Equals": [
+            "3",
+            {
+              "Ref": "InstanceCount"
+            }
+          ]
+        }
+      ]
+    },
+    "LaunchInstance3": {
+      "Fn::Equals": [
+        "3",
+        {
+          "Ref": "InstanceCount"
+        }
+      ]
+    },
+    "LaunchLinuxEC2Instance1": {
+      "Fn::Equals": [
+        {
+          "Ref": "OperatingSystem"
+        },
+        "Linux"
+      ]
+    },
+    "LaunchLinuxEC2Instance2": {
+      "Fn::And": [
+        {
+          "Condition": "LaunchLinuxEC2Instance1"
+        },
+        {
+          "Condition": "LaunchInstance2"
+        }
+      ]
+    },
+    "LaunchLinuxEC2Instance3": {
+      "Fn::And": [
+        {
+          "Condition": "LaunchLinuxEC2Instance1"
+        },
+        {
+          "Condition": "LaunchInstance3"
+        }
+      ]
+    },
+    "LaunchWindowsEC2Instance1": {
+      "Fn::Equals": [
+        {
+          "Ref": "OperatingSystem"
+        },
+        "Windows"
+      ]
+    },
+    "LaunchWindowsEC2Instance2": {
+      "Fn::And": [
+        {
+          "Condition": "LaunchWindowsEC2Instance1"
+        },
+        {
+          "Condition": "LaunchInstance2"
+        }
+      ]
+    },
+    "LaunchWindowsEC2Instance3": {
+      "Fn::And": [
+        {
+          "Condition": "LaunchWindowsEC2Instance1"
+        },
+        {
+          "Condition": "LaunchInstance3"
+        }
+      ]
+    }
+  },
+  "Resources":{
+    "S3CodePipelineArtifactBucket": {
+      "DeletionPolicy" : "Delete",
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName" : { "Fn::Join" : ["", [ {"Ref" : "AppName"}, "-artifacts-", { "Ref": "AWS::Region" } , "-", {"Ref" : "AWS::AccountId"} ]] },
+        "VersioningConfiguration" : {
+          "Status" : "Enabled"
+        },
+        "Tags" : [
+          {"Key" : "Name", "Value" : "CodePipeLineDemo-ArtifactS3Bucket" }
+        ]
+      }
+    },
+    "LinuxEC2Instance": {
+      "Type": "AWS::EC2::Instance",
+      "Condition": "LaunchLinuxEC2Instance1",
+      "Metadata": {
+        "AWS::CloudFormation::Init": {
+          "services": {
+            "sysvint": {
+              "codedeploy-agent": {
+                "enabled": "true",
+                "ensureRunning": "true"
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "ImageId": {
+          "Fn::FindInMap": [
+            "RegionOS2AMI",
+            {
+              "Ref": "AWS::Region"
+            },
+            {
+              "Ref": "OperatingSystem"
+            }
+          ]
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "SecurityGroup"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -ex\n",
+                "yum update -y aws-cfn-bootstrap\n",
+                "yum install -y aws-cli\n",
+                "# Helper function.\n",
+                "function error_exit\n",
+                "{\n",
+                "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '",
+                {
+                  "Ref": "WaitHandle"
+                },
+                "'\n",
+                "  exit 1\n",
+                "}\n",
+                "# Install the AWS CodeDeploy Agent.\n",
+                "cd /home/ec2-user/\n",
+                "aws s3 cp 's3://aws-codedeploy-us-east-1/latest/codedeploy-agent.noarch.rpm' . || error_exit 'Failed to download AWS CodeDeploy Agent.'\n",
+                "yum -y install codedeploy-agent.noarch.rpm || error_exit 'Failed to install AWS CodeDeploy Agent.' \n",
+                "/opt/aws/bin/cfn-init -s ",
+                {
+                  "Ref": "AWS::StackId"
+                },
+                " -r LinuxEC2Instance --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                " || error_exit 'Failed to run cfn-init.'\n",
+                "# All is well, so signal success.\n",
+                "/opt/aws/bin/cfn-signal -e 0 -r \"AWS CodeDeploy Agent setup complete.\" '",
+                {
+                  "Ref": "WaitHandle"
+                },
+                "'\n"
+              ]
+            ]
+          }
+        },
+        "KeyName": {
+          "Ref": "KeyPairName"
+        },
+        "Tags": [
+          {
+            "Key": {
+              "Ref": "TagKey"
+            },
+            "Value": {
+              "Ref": "TagValue"
+            }
+          }
+        ],
+        "IamInstanceProfile": {
+          "Ref": "InstanceRoleInstanceProfile"
+        }
+      }
+    },
+    "WindowsEC2Instance": {
+      "Type": "AWS::EC2::Instance",
+      "Condition": "LaunchWindowsEC2Instance1",
+      "Metadata": {
+        "AWS::CloudFormation::Init": {
+          "config": {
+            "commands": {
+              "00-download-host-agent": {
+                "command": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "powershell.exe -Command \"Read-S3Object ",
+                      "-BucketName aws-codedeploy-us-east-1 ",
+                      "-Key latest/codedeploy-agent.msi ",
+                      "-File codedeploy-agent.msi\""
+                    ]
+                  ]
+                },
+                "cwd": "C:/cfn",
+                "waitAfterCompletion": 0
+              },
+              "01-install-host-agent": {
+                "command": "C:\\cfn\\codedeploy-agent.msi /quiet /l C:\\cfn\\host-agent-install-log.txt",
+                "ignoreErrors": "true",
+                "waitAfterCompletion": 0
+              },
+              "02-signal-ready": {
+                "command": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "\"C:\\Program Files\\Amazon\\cfn-bootstrap\\cfn-signal\"",
+                      " -e 0 \"",
+                      {
+                        "Ref": "WaitHandle"
+                      },
+                      "\""
+                    ]
+                  ]
+                },
+                "waitAfterCompletion": 0
+              }
+            },
+            "services": {
+              "windows": {
+                "codedeploy-agent": {
+                  "enabled": "true",
+                  "ensureRunning": "true",
+                  "commands": [
+                    "01-install-host-agent"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "ImageId": {
+          "Fn::FindInMap": [
+            "RegionOS2AMI",
+            {
+              "Ref": "AWS::Region"
+            },
+            {
+              "Ref": "OperatingSystem"
+            }
+          ]
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "SecurityGroup"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "<script>\n",
+                "mkdir c:\\cfn\n",
+                "mkdir c:\\cfn\\log\n",
+                "c:\\\"Program Files\"\\Amazon\\cfn-bootstrap\\cfn-init.exe -s ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                " --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                " -r WindowsEC2Instance > c:\\cfn\\log\\cfn-call-log 2>&1",
+                "</script>"
+              ]
+            ]
+          }
+        },
+        "KeyName": {
+          "Ref": "KeyPairName"
+        },
+        "Tags": [
+          {
+            "Key": {
+              "Ref": "TagKey"
+            },
+            "Value": {
+              "Ref": "TagValue"
+            }
+          }
+        ],
+        "IamInstanceProfile": {
+          "Ref": "InstanceRoleInstanceProfile"
+        }
+      }
+    },
+    "WaitHandle": {
+      "Type": "AWS::CloudFormation::WaitConditionHandle"
+    },
+    "WaitCondition": {
+      "Type": "AWS::CloudFormation::WaitCondition",
+      "Properties": {
+        "Count": {
+          "Ref": "InstanceCount"
+        },
+        "Handle": {
+          "Ref": "WaitHandle"
+        },
+        "Timeout": "900"
+      }
+    },
+    "SecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Enable HTTP access via port 80 and SSH access.",
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": {
+              "Fn::FindInMap": [
+                "OS2SSHPort",
+                {
+                  "Ref": "OperatingSystem"
+                },
+                "SSHPort"
+              ]
+            },
+            "ToPort": {
+              "Fn::FindInMap": [
+                "OS2SSHPort",
+                {
+                  "Ref": "OperatingSystem"
+                },
+                "SSHPort"
+              ]
+            },
+            "CidrIp": {
+              "Ref": "SSHLocation"
+            }
+          }
+        ]
+      }
+    },
+    "CodeDeployTrustRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Sid": "1",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "codedeploy.us-east-1.amazonaws.com",
+                  "codedeploy.us-west-2.amazonaws.com"
+                ]
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Path": "/"
+      }
+    },
+    "CodeDeployRolePolicies": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "CodeDeployPolicy",
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Resource": [
+                "*"
+              ],
+              "Action": [
+                "ec2:Describe*"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Resource": [
+                "*"
+              ],
+              "Action": [
+                "autoscaling:CompleteLifecycleAction",
+                "autoscaling:DeleteLifecycleHook",
+                "autoscaling:DescribeLifecycleHooks",
+                "autoscaling:DescribeAutoScalingGroups",
+                "autoscaling:PutLifecycleHook",
+                "autoscaling:RecordLifecycleActionHeartbeat"
+              ]
+            }
+          ]
+        },
+        "Roles": [
+          {
+            "Ref": "CodeDeployTrustRole"
+          }
+        ]
+      }
+    },
+    "CodePipelineTrustRole": {
+    "Type": "AWS::IAM::Role",
+    "Properties": {
+      "AssumeRolePolicyDocument": {
+        "Statement": [
+          {
+            "Sid": "1",
+            "Effect": "Allow",
+            "Principal": {
+              "Service": [
+                "codepipeline.amazonaws.com"
+              ]
+            },
+            "Action": "sts:AssumeRole"
+          }
+        ]
+      },
+      "Path": "/"
+    }
+  },
+
+  "CodePipelineRolePolicies": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "CodePipelinePolicy",
+        "PolicyDocument": {
+                    "Statement": [
+              {
+                "Action": [
+                  "s3:GetObject",
+                  "s3:GetObjectVersion",
+                  "s3:GetBucketVersioning"
+                ],
+                "Resource": "*",
+                "Effect": "Allow"
+              },
+              {
+                "Action": [
+                  "s3:PutObject"
+                ],
+                "Resource": [
+                  "arn:aws:s3:::codepipeline*",
+                  "arn:aws:s3:::elasticbeanstalk*"
+                ],
+                "Effect": "Allow"
+              },
+              {
+                "Action": [
+                  "codedeploy:CreateDeployment",
+                  "codedeploy:GetApplicationRevision",
+                  "codedeploy:GetDeployment",
+                  "codedeploy:GetDeploymentConfig",
+                  "codedeploy:RegisterApplicationRevision"
+                ],
+                "Resource": "*",
+                "Effect": "Allow"
+              },
+              {
+                "Action": [
+                  "elasticbeanstalk:*",
+                  "ec2:*",
+                  "elasticloadbalancing:*",
+                  "autoscaling:*",
+                  "cloudwatch:*",
+                  "s3:*",
+                  "sns:*",
+                  "cloudformation:*",
+                  "rds:*",
+                  "sqs:*",
+                  "ecs:*",
+                  "iam:PassRole"
+                ],
+                "Resource": "*",
+                "Effect": "Allow"
+              },
+              {
+                "Action": [
+                  "lambda:InvokeFunction",
+                  "lambda:ListFunctions"
+                ],
+                "Resource": "*",
+                "Effect": "Allow"
+              }
+            ],
+            "Version": "2012-10-17"
+          },
+        "Roles": [{ "Ref": "CodePipelineTrustRole"}]
+      }
+    },
+
+    "lambdaS3CopyRole": {
+    "Type": "AWS::IAM::Role",
+    "Properties": {
+        "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {
+                        "Service": ["lambda.amazonaws.com"]
+                    },
+                    "Action": ["sts:AssumeRole"]
+                }
+            ]
+        },
+        "Path": "/"
+      }
+    },
+
+    "lambdaS3CopyRolePolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "lambda_s3_cp_Policy",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+              {
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:logs:*:*:*"
+              },
+              {
+                  "Action": [
+                      "codepipeline:PutJobSuccessResult",
+                      "codepipeline:PutJobFailureResult"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "*"
+              },
+              {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:*"
+                  ],
+                  "Resource": ["arn:aws:s3:::*"]
+                }
+          ]
+        },
+      "Roles": [{ "Ref": "lambdaS3CopyRole"}]
+    }
+  },
+
+    "InstanceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/"
+      }
+    },
+    "InstanceRolePolicies": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "InstanceRole",
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "autoscaling:Describe*",
+                "cloudformation:Describe*",
+                "cloudformation:GetTemplate",
+                "s3:Get*"
+              ],
+              "Resource": "*"
+            }
+          ]
+        },
+        "Roles": [
+          {
+            "Ref": "InstanceRole"
+          }
+        ]
+      }
+    },
+    "InstanceRoleInstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [
+          {
+            "Ref": "InstanceRole"
+          }
+        ]
+      }
+    },
+    "LinuxEC2Instance2": {
+      "Type": "AWS::EC2::Instance",
+      "Condition": "LaunchLinuxEC2Instance2",
+      "Metadata": {
+        "AWS::CloudFormation::Init": {
+          "services": {
+            "sysvint": {
+              "codedeploy-agent": {
+                "enabled": "true",
+                "ensureRunning": "true"
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "ImageId": {
+          "Fn::FindInMap": [
+            "RegionOS2AMI",
+            {
+              "Ref": "AWS::Region"
+            },
+            {
+              "Ref": "OperatingSystem"
+            }
+          ]
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "SecurityGroup"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -ex\n",
+                "yum update -y aws-cfn-bootstrap\n",
+                "yum install -y aws-cli\n",
+                "# Helper function.\n",
+                "function error_exit\n",
+                "{\n",
+                "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '",
+                {
+                  "Ref": "WaitHandle"
+                },
+                "'\n",
+                "  exit 1\n",
+                "}\n",
+                "# Install the AWS CodeDeploy Agent.\n",
+                "cd /home/ec2-user/\n",
+                "aws s3 cp 's3://aws-codedeploy-us-east-1/latest/codedeploy-agent.noarch.rpm' . || error_exit 'Failed to download AWS CodeDeploy Agent.'\n",
+                "yum -y install codedeploy-agent.noarch.rpm || error_exit 'Failed to install AWS CodeDeploy Agent.' \n",
+                "/opt/aws/bin/cfn-init -s ",
+                {
+                  "Ref": "AWS::StackId"
+                },
+                " -r LinuxEC2Instance --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                " || error_exit 'Failed to run cfn-init.'\n",
+                "# All is well, so signal success.\n",
+                "/opt/aws/bin/cfn-signal -e 0 -r \"AWS CodeDeploy Agent setup complete.\" '",
+                {
+                  "Ref": "WaitHandle"
+                },
+                "'\n"
+              ]
+            ]
+          }
+        },
+        "KeyName": {
+          "Ref": "KeyPairName"
+        },
+        "Tags": [
+          {
+            "Key": {
+              "Ref": "TagKey"
+            },
+            "Value": {
+              "Ref": "TagValue"
+            }
+          }
+        ],
+        "IamInstanceProfile": {
+          "Ref": "InstanceRoleInstanceProfile"
+        }
+      }
+    },
+    "WindowsEC2Instance2": {
+      "Type": "AWS::EC2::Instance",
+      "Condition": "LaunchWindowsEC2Instance2",
+      "Metadata": {
+        "AWS::CloudFormation::Init": {
+          "config": {
+            "commands": {
+              "00-download-host-agent": {
+                "command": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "powershell.exe -Command \"Read-S3Object ",
+                      "-BucketName aws-codedeploy-us-east-1 ",
+                      "-Key latest/codedeploy-agent.msi ",
+                      "-File codedeploy-agent.msi\""
+                    ]
+                  ]
+                },
+                "cwd": "C:/cfn",
+                "waitAfterCompletion": 0
+              },
+              "01-install-host-agent": {
+                "command": "C:\\cfn\\codedeploy-agent.msi /quiet /l C:\\cfn\\host-agent-install-log.txt",
+                "ignoreErrors": "true",
+                "waitAfterCompletion": 0
+              },
+              "02-signal-ready": {
+                "command": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "\"C:\\Program Files\\Amazon\\cfn-bootstrap\\cfn-signal\"",
+                      " -e 0 \"",
+                      {
+                        "Ref": "WaitHandle"
+                      },
+                      "\""
+                    ]
+                  ]
+                },
+                "waitAfterCompletion": 0
+              }
+            },
+            "services": {
+              "windows": {
+                "codedeploy-agent": {
+                  "enabled": "true",
+                  "ensureRunning": "true",
+                  "commands": [
+                    "01-install-host-agent"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "ImageId": {
+          "Fn::FindInMap": [
+            "RegionOS2AMI",
+            {
+              "Ref": "AWS::Region"
+            },
+            {
+              "Ref": "OperatingSystem"
+            }
+          ]
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "SecurityGroup"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "<script>\n",
+                "mkdir c:\\cfn\n",
+                "mkdir c:\\cfn\\log\n",
+                "c:\\\"Program Files\"\\Amazon\\cfn-bootstrap\\cfn-init.exe -s ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                " --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                " -r WindowsEC2Instance > c:\\cfn\\log\\cfn-call-log 2>&1",
+                "</script>"
+              ]
+            ]
+          }
+        },
+        "KeyName": {
+          "Ref": "KeyPairName"
+        },
+        "Tags": [
+          {
+            "Key": {
+              "Ref": "TagKey"
+            },
+            "Value": {
+              "Ref": "TagValue"
+            }
+          }
+        ],
+        "IamInstanceProfile": {
+          "Ref": "InstanceRoleInstanceProfile"
+        }
+      }
+    },
+    "LinuxEC2Instance3": {
+      "Type": "AWS::EC2::Instance",
+      "Condition": "LaunchLinuxEC2Instance3",
+      "Metadata": {
+        "AWS::CloudFormation::Init": {
+          "services": {
+            "sysvint": {
+              "codedeploy-agent": {
+                "enabled": "true",
+                "ensureRunning": "true"
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "ImageId": {
+          "Fn::FindInMap": [
+            "RegionOS2AMI",
+            {
+              "Ref": "AWS::Region"
+            },
+            {
+              "Ref": "OperatingSystem"
+            }
+          ]
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "SecurityGroup"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -ex\n",
+                "yum update -y aws-cfn-bootstrap\n",
+                "yum install -y aws-cli\n",
+                "# Helper function.\n",
+                "function error_exit\n",
+                "{\n",
+                "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '",
+                {
+                  "Ref": "WaitHandle"
+                },
+                "'\n",
+                "  exit 1\n",
+                "}\n",
+                "# Install the AWS CodeDeploy Agent.\n",
+                "cd /home/ec2-user/\n",
+                "aws s3 cp 's3://aws-codedeploy-us-east-1/latest/codedeploy-agent.noarch.rpm' . || error_exit 'Failed to download AWS CodeDeploy Agent.'\n",
+                "yum -y install codedeploy-agent.noarch.rpm || error_exit 'Failed to install AWS CodeDeploy Agent.' \n",
+                "/opt/aws/bin/cfn-init -s ",
+                {
+                  "Ref": "AWS::StackId"
+                },
+                " -r LinuxEC2Instance --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                " || error_exit 'Failed to run cfn-init.'\n",
+                "# All is well, so signal success.\n",
+                "/opt/aws/bin/cfn-signal -e 0 -r \"AWS CodeDeploy Agent setup complete.\" '",
+                {
+                  "Ref": "WaitHandle"
+                },
+                "'\n"
+              ]
+            ]
+          }
+        },
+        "KeyName": {
+          "Ref": "KeyPairName"
+        },
+        "Tags": [
+          {
+            "Key": {
+              "Ref": "TagKey"
+            },
+            "Value": {
+              "Ref": "TagValue"
+            }
+          }
+        ],
+        "IamInstanceProfile": {
+          "Ref": "InstanceRoleInstanceProfile"
+        }
+      }
+    },
+    "WindowsEC2Instance3": {
+      "Type": "AWS::EC2::Instance",
+      "Condition": "LaunchWindowsEC2Instance3",
+      "Metadata": {
+        "AWS::CloudFormation::Init": {
+          "config": {
+            "commands": {
+              "00-download-host-agent": {
+                "command": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "powershell.exe -Command \"Read-S3Object ",
+                      "-BucketName aws-codedeploy-us-east-1 ",
+                      "-Key latest/codedeploy-agent.msi ",
+                      "-File codedeploy-agent.msi\""
+                    ]
+                  ]
+                },
+                "cwd": "C:/cfn",
+                "waitAfterCompletion": 0
+              },
+              "01-install-host-agent": {
+                "command": "C:\\cfn\\codedeploy-agent.msi /quiet /l C:\\cfn\\host-agent-install-log.txt",
+                "ignoreErrors": "true",
+                "waitAfterCompletion": 0
+              },
+              "02-signal-ready": {
+                "command": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "\"C:\\Program Files\\Amazon\\cfn-bootstrap\\cfn-signal\"",
+                      " -e 0 \"",
+                      {
+                        "Ref": "WaitHandle"
+                      },
+                      "\""
+                    ]
+                  ]
+                },
+                "waitAfterCompletion": 0
+              }
+            },
+            "services": {
+              "windows": {
+                "codedeploy-agent": {
+                  "enabled": "true",
+                  "ensureRunning": "true",
+                  "commands": [
+                    "01-install-host-agent"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "ImageId": {
+          "Fn::FindInMap": [
+            "RegionOS2AMI",
+            {
+              "Ref": "AWS::Region"
+            },
+            {
+              "Ref": "OperatingSystem"
+            }
+          ]
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "SecurityGroup"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "<script>\n",
+                "mkdir c:\\cfn\n",
+                "mkdir c:\\cfn\\log\n",
+                "c:\\\"Program Files\"\\Amazon\\cfn-bootstrap\\cfn-init.exe -s ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                " --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                " -r WindowsEC2Instance > c:\\cfn\\log\\cfn-call-log 2>&1",
+                "</script>"
+              ]
+            ]
+          }
+        },
+        "KeyName": {
+          "Ref": "KeyPairName"
+        },
+        "Tags": [
+          {
+            "Key": {
+              "Ref": "TagKey"
+            },
+            "Value": {
+              "Ref": "TagValue"
+            }
+          }
+        ],
+        "IamInstanceProfile": {
+          "Ref": "InstanceRoleInstanceProfile"
+        }
+      }
+    },
+
+      "CodeDeployTrustRole": {
+      "Type" : "AWS::IAM::Role",
+      "Properties" : {
+        "AssumeRolePolicyDocument" : {
+          "Statement" : [
+            {
+              "Sid" : "",
+              "Effect" : "Allow",
+              "Principal" : {
+                "Service": [
+                    "codedeploy.amazonaws.com"
+                ]
+              },
+              "Action" : "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns" : [ "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole" ],
+        "Path" : "/"
+      }
+    },
+    "MyCodeDeployApp" : {
+      "Type" : "AWS::CodeDeploy::Application",
+      "Properties" : {
+        "ApplicationName" : {"Fn::Join" : ["", [{"Ref" : "AppName"}, "-CodeDeployApp"]]}
+      }
+    },
+    "DeploymentGroup" : {
+      "DependsOn" : ["CodeDeployTrustRole", "LinuxEC2Instance" ],
+      "Type" : "AWS::CodeDeploy::DeploymentGroup",
+      "Properties" : {
+        "ApplicationName" : {"Ref" : "MyCodeDeployApp"},
+        "DeploymentGroupName" : {"Fn::Join" : ["", [{"Ref" : "AppName"}, {"Ref" : "TagValue"}, "-DepGrp"]]},
+        "DeploymentConfigName" : "CodeDeployDefault.OneAtATime",
+        "ServiceRoleArn" : {"Fn::GetAtt" : ["CodeDeployTrustRole", "Arn"]},
+        "Ec2TagFilters" : [{
+          "Key" : "Name",
+          "Value" : {"Ref" : "TagValue"},
+          "Type" : "KEY_AND_VALUE"
+        }]
+      }
+    },
+    "CopytoDest": {
+    "Type": "AWS::Lambda::Function",
+    "Condition" : "CreateCopyFunction",
+    "Properties": {
+      "Code": {
+        "ZipFile":  { "Fn::Join": ["", [
+          "var assert = require('assert');\n",
+          "var AWS = require('aws-sdk');\n",
+          "var util = require('util');\n",
+          " \n",
+          "exports.handler = function(event, context) {\n",
+          "        var s3 = new AWS.S3(options = {region: \"",{"Ref": "DestinationRegion"},"\", signatureVersion: 'v4'});\n",
+          "        var codepipeline = new AWS.CodePipeline();\n",
+          "        //console.log(event);\n",
+          "        var jobId = event[\"CodePipeline.job\"].id;\n",
+          " \n",
+          "        var params = {\n",
+          "                Bucket: \"",{"Ref": "DestinationBucket"},"\",\n",
+          "                CopySource: \"",{"Ref": "S3SourceCodeBucket"},"\/",{"Ref": "S3SourceCodeObject"}, "\",\n",
+          "                Key: \"",{"Ref": "S3SourceCodeObject"},"\",\n",
+          "                ACL: 'bucket-owner-full-control',\n",
+          "                //ServerSideEncryption: 'aws:kms',\n",
+          "                //SSEKMSKeyId: '<Key ID>'\n",
+          "                ServerSideEncryption: 'AES256'\n",
+          "        }\n",
+          "        \n",
+          "        var putJobSuccess = function(message) {\n",
+          "           var paramsc = {\n",
+          "             jobId : jobId\n",
+          "           };\n",
+          "           //console.log(paramsc);\n",
+          "           codepipeline.putJobSuccessResult(paramsc, function(err, data) {\n",
+          "             if(err) {\n",
+          "               context.fail(err); \n",
+          "             } else {\n",
+          "             context.succeed(message); \n",
+          "             }\n",
+          "           });\n",
+          "         };\n",
+          " \n",
+          "        s3.copyObject(params, function(err, data) {\n",
+          "                if (err) console.log(err, err.stack);  // an error occurred\n",
+          "                else {\n",
+          "                        console.log ( 'Copied');\n",
+          "                        putJobSuccess(\"Tests passed.\");\n",
+          "                        //context.done();\n",
+          "                    }// successful response\n",
+          "        });\n",
+          "};"
+        ]]}
+      },
+      "Handler": "index.handler",
+      "Runtime": "nodejs4.3",
+      "Timeout": "30",
+      "Role": {"Fn::GetAtt": ["lambdaS3CopyRole", "Arn"]}
+    }
+  },
+    "myCodePipeLine1" : {
+      "DependsOn" : "DeploymentGroup",
+      "Condition" : "NoCopyFunction",
+      "Type":"AWS::CodePipeline::Pipeline",
+      "Properties":{
+        "RoleArn":  {"Fn::GetAtt" : ["CodePipelineTrustRole", "Arn"]},
+        "Stages":[
+            {
+                "Name": "Source",
+                "Actions": [
+                    {
+                        "InputArtifacts": [],
+                        "Name": "Source",
+                        "ActionTypeId": {
+                            "Category": "Source",
+                            "Owner": "AWS",
+                            "Version": "1",
+                            "Provider": "S3"
+                        },
+                        "OutputArtifacts": [
+                            {
+                                "Name": {"Fn::Join" : ["", [{"Ref" : "AppName"}, "-SourceArtifact"]]}
+                            }
+                        ],
+                        "Configuration": {
+                            "S3Bucket": {"Ref" : "S3SourceCodeBucket"},
+                            "S3ObjectKey": {"Ref" : "S3SourceCodeObject"}
+                        },
+                        "RunOrder": 1
+                    }
+                ]
+            },
+            {
+                "Name": {"Fn::Join" : ["", [{"Ref" : "TagValue"}, "-Build"]]},
+                "Actions": [
+                    {
+                        "InputArtifacts": [
+                            {
+                                "Name": {"Fn::Join" : ["", [{"Ref" : "AppName"}, "-SourceArtifact"]]}
+                            }
+                        ],
+                        "Name": {"Fn::Join" : ["", [{"Ref" : "TagValue"}, "-Stage"]]},
+                        "ActionTypeId": {
+                            "Category": "Deploy",
+                            "Owner": "AWS",
+                            "Version": "1",
+                            "Provider": "CodeDeploy"
+                        },
+                        "OutputArtifacts": [],
+                        "Configuration": {
+                            "ApplicationName": {"Fn::Join" : ["", [{"Ref" : "AppName"}, "-CodeDeployApp"]]},
+                            "DeploymentGroupName": {"Fn::Join" : ["", [{"Ref" : "AppName"}, {"Ref" : "TagValue"}, "-DepGrp"]]}
+                        },
+                        "RunOrder": 1
+                    }
+                ]
+            }
+        ],
+        "ArtifactStore":{
+          "Type":"S3",
+          "Location": { "Fn::Join" : ["", [ {"Ref" : "AppName"}, "-artifacts-", { "Ref": "AWS::Region" } , "-", {"Ref" : "AWS::AccountId"} ]] }
+        },
+        "Name": { "Fn::Join" : ["", [ "XRCodePipeLine-", { "Ref": "AWS::Region" } ]] }
+      }
+    },
+    "myCodePipeLine2":{
+      "DependsOn" : [ "CopytoDest" , "DeploymentGroup" ],
+      "Condition" : "CreateCopyFunction",
+      "Type":"AWS::CodePipeline::Pipeline",
+      "Properties":{
+        "RoleArn":  {"Fn::GetAtt" : ["CodePipelineTrustRole", "Arn"]},
+        "Stages":[
+            {
+                "Name": "Source",
+                "Actions": [
+                    {
+                        "InputArtifacts": [],
+                        "Name": "Source",
+                        "ActionTypeId": {
+                            "Category": "Source",
+                            "Owner": "AWS",
+                            "Version": "1",
+                            "Provider": "S3"
+                        },
+                        "OutputArtifacts": [
+                            {
+                                "Name": {"Fn::Join" : ["", [{"Ref" : "AppName"}, "-SourceArtifact"]]}
+                            }
+                        ],
+                        "Configuration": {
+                            "S3Bucket": {"Ref" : "S3SourceCodeBucket"},
+                            "S3ObjectKey": {"Ref" : "S3SourceCodeObject"}
+                        },
+                        "RunOrder": 1
+                    }
+                ]
+            },
+            {
+                "Name": {"Fn::Join" : ["", [{"Ref" : "TagValue"}, "-Build"]]},
+                "Actions": [
+                    {
+                        "InputArtifacts": [
+                            {
+                                "Name": {"Fn::Join" : ["", [{"Ref" : "AppName"}, "-SourceArtifact"]]}
+                            }
+                        ],
+                        "Name": {"Fn::Join" : ["", [{"Ref" : "TagValue"}, "-Stage"]]},
+                        "ActionTypeId": {
+                            "Category": "Deploy",
+                            "Owner": "AWS",
+                            "Version": "1",
+                            "Provider": "CodeDeploy"
+                        },
+                        "OutputArtifacts": [],
+                        "Configuration": {
+                            "ApplicationName": {"Fn::Join" : ["", [{"Ref" : "AppName"}, "-CodeDeployApp"]]},
+                            "DeploymentGroupName": {"Fn::Join" : ["", [{"Ref" : "AppName"}, {"Ref" : "TagValue"}, "-DepGrp"]]}
+                        },
+                        "RunOrder": 1
+                    }
+                ]
+            },
+            {
+                "Name": "CopyToDestinationBucket",
+                "Actions": [
+                    {
+                        "InputArtifacts": [],
+                        "Name": "CopyToDestinationS3Bucket",
+                        "ActionTypeId": {
+                            "Category": "Invoke",
+                            "Owner": "AWS",
+                            "Version": "1",
+                            "Provider": "Lambda"
+                        },
+                        "OutputArtifacts": [],
+                        "Configuration": {
+                            "FunctionName": {"Ref" : "CopytoDest"}
+                        },
+                        "RunOrder": 1
+                    }
+                ]
+            }
+        ],
+        "ArtifactStore":{
+          "Type":"S3",
+          "Location": { "Fn::Join" : ["", [ {"Ref" : "AppName"}, "-artifacts-", { "Ref": "AWS::Region" } , "-", {"Ref" : "AWS::AccountId"} ]] }
+        },
+        "Name": { "Fn::Join" : ["", [ "XRCodePipeLine-", { "Ref": "AWS::Region" } ]] }
+      }
+    }
+  },
+  "Outputs":{
+    "StackName":{
+      "Value":{
+        "Ref":"AWS::StackName"
+      }
+    },
+
+    "CodeDeployTrustRoleARN": {
+      "Value": {
+        "Fn::GetAtt": [
+          "CodeDeployTrustRole",
+          "Arn"
+        ]
+      }
+    },
+
+    "CodePipelineURL1":{
+      "Value":{
+        "Fn::Join":[
+          "",
+          [
+            "https://console.aws.amazon.com/codepipeline/home?region=",
+            {
+              "Ref":"AWS::Region"
+            },
+            "#/view/",
+            {
+              "Ref":"myCodePipeLine1"
+            }
+          ]
+        ]
+      },
+      "Condition" : "NoCopyFunction"
+    },
+    "CodePipelineURL":{
+      "Value":{
+        "Fn::Join":[
+          "",
+          [
+            "https://console.aws.amazon.com/codepipeline/home?region=",
+            {
+              "Ref":"AWS::Region"
+            },
+            "#/view/",
+            {
+              "Ref":"myCodePipeLine2"
+            }
+          ]
+        ]
+      },
+      "Condition" : "CreateCopyFunction"
+    }
+  }
+}

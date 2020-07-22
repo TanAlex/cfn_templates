@@ -250,9 +250,34 @@ Resources:
             #!/bin/bash
             #su - jupyter -c '~/anaconda2/bin/ipcluster nbextension enable;
             #~/anaconda2/bin/jupyter notebook --ip `curl http://169.254.169.254/latest/meta-data/public-hostname` --port 8080 --no-browser &'
-            # source activate python3
+            wget -q https://www-us.apache.org/dist/spark/spark-2.4.5/spark-2.4.5-bin-hadoop2.7.tgz
+            tar xf spark-2.4.5-bin-hadoop2.7.tgz
+            pip install -q findspark pyspark
+            echo "export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+            export SPARK_HOME=/home/ubuntu/spark-2.4.5-bin-hadoop2.7" >> /home/ubuntu/.profile
+
+            echo "
+            source activate python3
             aws configure set region us-east-2 --profile default
             /home/ubuntu/anaconda3/envs/python3/bin/jupyter notebook --ip 0.0.0.0 --port 8888 &
+            " > /home/ubuntu/startup.sh
+            chmod +x /home/ubuntu/startup.sh
+
+            echo "
+            [Unit]
+            Description=Jupyter notebook service
+
+            [Service]
+            ExecStart=/home/ubuntu/startup.sh
+            Type=oneshot
+            RemainAfterExit=yes
+            User=ubuntu
+
+            [Install]
+            WantedBy=multi-user.target" > /etc/systemd/system/jupyter.service
+            sudo systemctl daemon-reload
+            sudo systemctl start jupyter
+
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:

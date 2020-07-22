@@ -1,4 +1,11 @@
+
+Deep Learning AMI (Ubuntu 18.04) Version 30.0 (ami-08bf49c7b3a0c761e)
+
+upload ~/.ssh/ida_pub to key-pair called service-key
+
 stacker build -r us-east-2 ./main.env ./main.yaml
+
+sudo vi /etc/systemd/system/jupyter.service
 
 
 /home/ubuntu/anaconda3/envs/python3/bin/python /home/ubuntu/anaconda3/envs/python3/bin/jupyter-notebook --ip 0.0.0.0 --port 8888
