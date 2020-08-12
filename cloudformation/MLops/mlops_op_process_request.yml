@@ -1,0 +1,84 @@
+Resources:
+  MLOpsProcessRequest:
+    Type: "AWS::Lambda::Function"
+    Properties: 
+      FunctionName: mlops-op-process-request
+      Handler: index.lambda_handler
+      MemorySize: 512
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/MLOps
+      Runtime: python3.7
+      Timeout: 60
+      Code: 
+        ZipFile: !Sub |
+            import boto3
+            import io
+            import zipfile
+            import json
+            from datetime import datetime
+
+            s3 = boto3.client('s3')
+            codepipeline = boto3.client('codepipeline')
+
+            def lambda_handler(event, context):
+                trainingJob = None
+                deployment = None
+                
+                try:
+                    now = datetime.now()
+                    
+                    jobId = event["CodePipeline.job"]["id"]
+                    user_params = json.loads(event["CodePipeline.job"]["data"]["actionConfiguration"]["configuration"]["UserParameters"])
+                    
+                    model_prefix = user_params['model_prefix']
+                    mlops_operation_template = s3.get_object(Bucket=user_params['bucket'], Key=user_params['prefix'] )['Body'].read()
+                    job_name = 'mlops-%s-%s' % (model_prefix, now.strftime("%Y-%m-%d-%H-%M-%S"))
+                    
+                    s3Location = None
+                    for inputArtifacts in event["CodePipeline.job"]["data"]["inputArtifacts"]:
+                        if inputArtifacts['name'] == 'ModelSourceOutput':
+                            s3Location = inputArtifacts['location']['s3Location']
+                            
+                    params = {
+                        "Parameters": {
+                            "AssetsBucket": s3Location['bucketName'],
+                            "AssetsKey": s3Location['objectKey'],
+                            "Operation": "training",
+                            "Environment": "none",
+                            "JobName": job_name
+                        }
+                    }
+                    
+                    for outputArtifacts in event["CodePipeline.job"]["data"]["outputArtifacts"]:
+                        if outputArtifacts['name'] == 'RequestOutput':
+                            s3Location = outputArtifacts['location']['s3Location']
+                            
+                            zip_bytes = io.BytesIO()
+                            with zipfile.ZipFile(zip_bytes, "w") as z:
+                                z.writestr('assets/params_train.json', json.dumps(params))
+                                params['Parameters']['Operation'] = 'deployment'
+                                params['Parameters']['Environment'] = 'development'
+                                z.writestr('assets/params_deploy_dev.json', json.dumps(params))
+                                params['Parameters']['Environment'] = 'production'
+                                z.writestr('assets/params_deploy_prd.json', json.dumps(params))
+
+                                z.writestr('assets/mlops_operation_handler.yml', mlops_operation_template)
+                              
+                            zip_bytes.seek(0)
+                            s3.put_object(Bucket=s3Location['bucketName'], Key=s3Location['objectKey'], Body=zip_bytes.read())
+                            
+                    # and update codepipeline
+                    codepipeline.put_job_success_result(jobId=jobId)
+                except Exception as e:
+                    resp = codepipeline.put_job_failure_result(
+                        jobId=jobId,
+                        failureDetails={
+                            'type': 'ConfigurationError',
+                            'message': str(e),
+                            'externalExecutionId': context.aws_request_id
+                        }
+                    )
+      Description: "Function that will start a new Sagemaker Training Job"
+      Tags:
+        - Key: Description
+          Value: Lambda function that process the request and prepares the cfn template for training
+

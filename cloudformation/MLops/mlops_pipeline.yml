@@ -1,0 +1,138 @@
+Description: Create a CodePipeline for a Machine Learning Pipeline
+Parameters:
+    SourceBucketPath:
+        Type: String
+        Description: Path of the S3 bucket that CodePipeline should find a sagemaker jobfile
+
+    ModelNamePrefix:
+        Type: String
+        Description: The name prefix of the model that will be supported by this pipeline
+
+Resources:  
+  DeployPipeline:
+    Type: "AWS::CodePipeline::Pipeline"
+    Properties:
+      Name: !Sub ${ModelNamePrefix}-pipeline
+      RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/MLOps 
+      ArtifactStore:
+          Type: S3
+          Location: !Sub mlops-${AWS::Region}-${AWS::AccountId}
+      Stages:
+        -
+          Name: Source
+          Actions: 
+            - 
+              Name: SourceAction
+              ActionTypeId: 
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: S3
+              OutputArtifacts: 
+                - 
+                  Name: ModelSourceOutput
+              Configuration: 
+                S3Bucket: 
+                  !Sub ${SourceBucketPath}
+                S3ObjectKey: 
+                  !Sub training_jobs/${ModelNamePrefix}/trainingjob.zip
+              RunOrder: 1
+        -
+          Name: ProcessRequest
+          Actions:
+            -
+              Name: ProcessRequest
+              InputArtifacts:
+                - Name: ModelSourceOutput
+              OutputArtifacts:
+                -
+                  Name: RequestOutput
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Version: 1
+                Provider: Lambda
+              Configuration:
+                  FunctionName: mlops-op-process-request
+                  UserParameters: !Sub '{"model_prefix": "${ModelNamePrefix}", "bucket":"aws-ai-ml-aod-latam","prefix":"mlops-workshop/assets/mlops_operation_handler.yml" }'
+              RunOrder: 1
+        -
+          Name: Train
+          Actions:
+            - 
+              Name: TrainModel
+              InputArtifacts:
+                - Name: ModelSourceOutput
+                - Name: RequestOutput
+              OutputArtifacts:
+                - Name: ModelTrainOutput
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/MLOps
+                StackName: !Sub mlops-training-${ModelNamePrefix}-job
+                TemplateConfiguration: RequestOutput::assets/params_train.json
+                TemplatePath: RequestOutput::assets/mlops_operation_handler.yml
+              RunOrder: 1
+        -
+          Name: DeployDev
+          Actions:
+            - 
+              Name: DeployDevModel
+              InputArtifacts:
+                - Name: ModelSourceOutput
+                - Name: RequestOutput
+              OutputArtifacts:
+                - Name: ModelDeployDevOutput
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              Configuration:
+                ActionMode: CREATE_UPDATE 
+                RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/MLOps
+                StackName: !Sub mlops-deploy-${ModelNamePrefix}-dev
+                TemplateConfiguration: RequestOutput::assets/params_deploy_dev.json
+                TemplatePath: RequestOutput::assets/mlops_operation_handler.yml
+              RunOrder: 1
+        -
+          Name: DeployApproval
+          Actions:
+            -
+              Name: ApproveDeploy
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Version: 1
+                Provider: Manual
+              Configuration:
+                  CustomData: 'Shall this model be put into production?'
+              RunOrder: 1
+        -
+          Name: DeployPrd
+          Actions:
+            - 
+              Name: DeployModelPrd
+              InputArtifacts:
+                - Name: ModelSourceOutput
+                - Name: RequestOutput
+              OutputArtifacts:
+                - Name: ModelDeployPrdOutput
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+                
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/MLOps
+                StackName: !Sub mlops-deploy-${ModelNamePrefix}-prd
+                TemplateConfiguration: RequestOutput::assets/params_deploy_prd.json
+                TemplatePath: RequestOutput::assets/mlops_operation_handler.yml
+              RunOrder: 1

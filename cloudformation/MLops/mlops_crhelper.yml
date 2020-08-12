@@ -1,0 +1,19 @@
+Resources:
+    CloudFormationHelperLayer:
+        Type: AWS::Lambda::LayerVersion
+        Properties:
+            CompatibleRuntimes:
+                - python3.6
+                - python3.7
+            LayerName: crhelper
+            Description: https://github.com/aws-cloudformation/custom-resource-helper
+            LicenseInfo: Apache 2.0 License
+            Content:
+                S3Bucket: aws-ai-ml-aod-latam
+                S3Key: mlops-workshop/assets/crhelper.zip
+Outputs:
+    LayerArn:
+        Description: Arn of the layer's latest version
+        Value: !Ref CloudFormationHelperLayer
+        Export:
+            Name: mlops-crhelper-LayerArn

@@ -1,0 +1,21 @@
+Resources:
+    MLOpsDeployment:
+        Type: "AWS::Lambda::Function"
+        Properties: 
+            FunctionName: mlops-op-deployment
+            Handler: mlops_op_deploy.lambda_handler
+            MemorySize: 512
+            Role: !Sub arn:aws:iam::${AWS::AccountId}:role/MLOps
+            Runtime: python3.7
+            Timeout: 60
+            Layers:
+                - Fn::ImportValue: mlops-crhelper-LayerArn
+            Code: 
+                S3Bucket: aws-ai-ml-aod-latam
+                S3Key: mlops-workshop/assets/src/mlops_op_deploy.zip
+
+            Description: "Function that will start a new Sagemaker Deployment"
+            Tags:
+                - Key: Description
+                  Value: Lambda function that process the request and prepares the cfn template for deployment
+

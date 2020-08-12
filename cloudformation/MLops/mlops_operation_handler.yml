@@ -1,0 +1,29 @@
+Description: Execute a given operation, during the execution of a ML Pipeline 
+Parameters:
+  AssetsBucket:
+    Type: String
+    Description: S3 Bucket that contains the assets
+  AssetsKey:
+    Type: String
+    Description: Prefix for the zip file in an S3 Bucket
+  Environment:
+    Type: String
+    Default: none
+    AllowedValues: ["none", "development", "production"]
+  Operation:
+    Type: String
+    AllowedValues: ["training", "deployment", "testing"] 
+    Description: Which kind of operation will be executed
+  JobName:
+    Type: String
+    Description: The name of the training job
+
+Resources:
+  MLOpsOperation:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mlops-op-${Operation}'
+      Environment: !Sub ${Environment}
+      JobName: !Sub ${JobName}
+      AssetsBucket: !Sub ${AssetsBucket}
+      AssetsKey: !Sub ${AssetsKey}

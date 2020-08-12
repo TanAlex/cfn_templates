@@ -1,0 +1,107 @@
+Resources:
+    MLOpsTraining:
+        Type: "AWS::Lambda::Function"
+        Properties: 
+            FunctionName: mlops-op-training
+            Handler: index.lambda_handler
+            MemorySize: 512
+            Role: !Sub arn:aws:iam::${AWS::AccountId}:role/MLOps
+            Runtime: python3.7
+            Timeout: 60
+            Layers:
+                - Fn::ImportValue: mlops-crhelper-LayerArn
+            Code: 
+                ZipFile: !Sub |
+                    import boto3
+                    import io
+                    import zipfile
+                    import json
+                    import logging
+                    from crhelper import CfnResource
+
+                    logger = logging.getLogger(__name__)
+                    # Initialise the helper, all inputs are optional, this example shows the defaults
+                    helper = CfnResource(json_logging=False, log_level='DEBUG', boto_level='CRITICAL')
+
+                    s3 = boto3.client('s3')
+                    sm =  boto3.client('sagemaker')
+                                         
+                    def lambda_handler(event, context):
+                        helper(event, context)
+
+                    @helper.create
+                    @helper.update
+                    def start_training_job(event, context):
+                        try:
+                            # Get the training job and deployment descriptors
+                            training_params = None
+                            deployment_params = None
+                            job_name = event['ResourceProperties']['JobName']
+                            helper.Data.update({'job_name': job_name})
+                            try:
+                                # We need to check if there is another training job with the same name
+                                sm.describe_training_job(TrainingJobName=job_name)
+                                ## there is, let's let the poll to address this
+                            except Exception as a:
+                                # Ok. there isn't. so, let's start a new training job
+                                resp = s3.get_object(Bucket=event['ResourceProperties']['AssetsBucket'], Key=event['ResourceProperties']['AssetsKey'])
+                                with zipfile.ZipFile(io.BytesIO(resp['Body'].read()), "r") as z:
+                                    training_params = json.loads(z.read('trainingjob.json').decode('ascii'))
+                                    deployment_params = json.loads(z.read('deployment.json').decode('ascii'))
+                                
+                                training_params['TrainingJobName'] = job_name
+                                resp = sm.create_training_job(**training_params)
+                        except Exception as e:
+                            logger.error("start_training_job - Ops! Something went wrong: %s" % e)
+                            raise e
+
+                    @helper.delete
+                    def stop_training_job(event, context):
+                        try:
+                            job_name =  event['ResourceProperties']['JobName']
+                            status = sm.describe_training_job(TrainingJobName=job_name)['TrainingJobStatus']
+                            if status == 'InProgress':
+                                logger.info('Stopping InProgress training job: %s', job_name)
+                                sm.stop_training_job(TrainingJobName=job_name)
+                                return False
+                            else:
+                                logger.info('Training job status: %s, nothing to stop', status)
+                        except Exception as e:
+                            logger.error("stop_training_job - Ops! Something went wrong: %s" % e)
+                        return True
+
+                    @helper.poll_create
+                    @helper.poll_update
+                    def check_training_job_progress(event, context):
+                        failed = False
+                        try:
+                            job_name = helper.Data.get('job_name')
+                            resp = sm.describe_training_job(TrainingJobName=job_name)
+                            status = resp['TrainingJobStatus']
+                            if status == 'Completed':
+                                logger.info('Training Job (%s) is Completed', job_name)
+                                return True
+                            elif status in ['InProgress', 'Stopping' ]:
+                                logger.info('Training job (%s) still in progress (%s), waiting and polling again...', 
+                                    job_name, resp['SecondaryStatus'])
+                            elif status == 'Failed':
+                                failed = True
+                                raise Exception('Training job has failed: {}',format(resp['FailureReason']))
+                            else:
+                                raise Exception('Training job ({}) has unexpected status: {}'.format(job_name, status))
+                        except Exception as e:
+                            logger.error("check_training_job_progress - Ops! Something went wrong: %s" % e)
+                            if failed:
+                                raise e
+                        return False
+
+                    @helper.poll_delete
+                    def check_stopping_training_job_progress(event, context):
+                        logger.info("check_stopping_training_job_progress")
+                        return stop_training_job(event, context)
+
+            Description: "Function that will start a new Sagemaker Training Job"
+            Tags:
+                - Key: Description
+                  Value: Lambda function that process the request and prepares the cfn template for training
+

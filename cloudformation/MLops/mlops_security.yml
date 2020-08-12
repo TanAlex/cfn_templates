@@ -1,0 +1,81 @@
+Resources:
+    MLOpsRole:
+        Type: "AWS::IAM::Role"
+        Properties: 
+            RoleName: MLOps
+            AssumeRolePolicyDocument: 
+                Version: "2012-10-17"
+                Statement: 
+                    - 
+                        Effect: "Allow"
+                        Principal: 
+                            Service: 
+                                - "sagemaker.amazonaws.com"
+                        Action: 
+                            - "sts:AssumeRole"
+                    - 
+                        Effect: "Allow"
+                        Principal: 
+                            Service: 
+                                - "cloudformation.amazonaws.com"
+                        Action: 
+                            - "sts:AssumeRole"
+                    - 
+                        Effect: "Allow"
+                        Principal: 
+                            Service: 
+                                - "codepipeline.amazonaws.com"
+                        Action: 
+                            - "sts:AssumeRole"
+                    - 
+                        Effect: "Allow"
+                        Principal: 
+                            Service: 
+                                - "codebuild.amazonaws.com"
+                        Action: 
+                          - "sts:AssumeRole"
+                    - 
+                        Effect: "Allow"
+                        Principal: 
+                            Service: 
+                                - "lambda.amazonaws.com"
+                        Action: 
+                            - "sts:AssumeRole"
+                    - 
+                        Effect: "Allow"
+                        Principal: 
+                            Service: 
+                                - "events.amazonaws.com"
+                        Action: 
+                            - "sts:AssumeRole"
+                    - 
+                        Effect: "Allow"
+                        Principal: 
+                            Service: 
+                                - "states.amazonaws.com"
+                        Action: 
+                            - "sts:AssumeRole"
+                    - 
+                        Effect: "Allow"
+                        Principal: 
+                            Service: 
+                                - "glue.amazonaws.com"
+                        Action: 
+                            - "sts:AssumeRole"
+            Path: "/"
+            Policies: 
+                - 
+                    PolicyName: "Admin"
+                    PolicyDocument: 
+                        Version: "2012-10-17"
+                        Statement: 
+                            - 
+                                Effect: "Allow"
+                                Action: "*"
+                                Resource: "*"
+Outputs:
+    LayerArn:
+        Description: Arn of the role
+        Value: !Ref MLOpsRole 
+        Export: 
+            Name: mlops-RoleArn
