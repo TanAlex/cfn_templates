@@ -1,0 +1,13 @@
+locals{
+  vpc_state_key = "vpc/terraform.tfstate"
+  vpc_remote_key_name = (var.workspace == "default")? local.vpc_state_key : "env:/${var.workspace}/${local.vpc_state_key}"
+}
+
+data "terraform_remote_state" "vpc" {
+  backend = "s3"
+  config = {
+    bucket = var.bucket
+    key = local.vpc_remote_key_name
+    region = var.region
+  }
+}

@@ -1,0 +1,22 @@
+namespace: ${namespace}
+stacker_bucket: ${stacker_bucket_name}
+
+stacks:
+  - name: rds-subnet-demo
+    class_path: rds_blueprints.rds_subnet.RdsSubnet
+    variables:
+      EnvironmentName: ${environment}
+      PriSubnets: ${xref ${customer}-common-core-vpc::PriSubnet1},${xref ${customer}-common-core-vpc::PriSubnet2}
+  - name: rds-instance-demo
+    class_path: rds_blueprints.rds_instance.RdsInstance
+    variables:
+      EnvironmentName: ${environment}
+      ApplicationName: demo
+      DBPassword: notasecret
+      RdsAllocatedStorage: 5
+      RdsEngineType: mysql
+      RdsInstanceClass: db.m3.large
+      MultiAZ: 'false'
+      Encrypted: 'false'
+      VpcId: ${xref ${customer}-common-core-vpc::VPC}
+      DBSubnetGroupName: ${output rds-subnet-demo::DBSubnetGroup}

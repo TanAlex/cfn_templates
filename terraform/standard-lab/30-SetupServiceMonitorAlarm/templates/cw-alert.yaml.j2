@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  EscalationTopic:
+    #Type: AWS::SNS::Topic
+    Type: String
+  InstanceId:
+    Type: AWS::EC2::Instance::Id
+  ServiceName:
+    Type: String
+    Description: "The service name to monitor and alarm on, like 'Windows Update'"
+    AllowedPattern: ([a-zA-Z0-9 ,\-\.]+)
+  S3BucketName:
+    Type: String
+    AllowedPattern: ([a-z0-9\-\.]+)
+    Description: "S3 Bucket to hold the SendMetrics.ps1 script"
+  CreateSNSTopic:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: false
+Conditions:
+  IfCreateSNSTopic: !Equals [ !Ref CreateSNSTopic, "true" ]
+Resources:
+  EscalationTopicNew:
+    Type: AWS::SNS::Topic
+    Condition: IfCreateSNSTopic
+  EscalationTopicEmailSubscriber:
+    Type: AWS::SNS::Subscription
+    Condition: IfCreateSNSTopic
+    Properties:
+      Endpoint: ttan@onica.com
+      Protocol: email
+      TopicArn: !Ref EscalationTopicNew
+  {% for service in variables.ServiceName.split(",") %}
+  WindowsServiceMonitorAlarm{{loop.index}}:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      Namespace: service-monitor
+      MetricName: ServiceStatus
+      Dimensions:
+        - Name: instanceid
+          Value: !Ref InstanceId
+        - Name: ServiceName
+          Value: {{service}}
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 3
+      ComparisonOperator: LessThanThreshold
+      Threshold: 1
+      AlarmActions:   
+        - !If [IfCreateSNSTopic, !Ref EscalationTopicNew , !Ref EscalationTopic ]
+      OKActions:
+        - !If [IfCreateSNSTopic, !Ref EscalationTopicNew , !Ref EscalationTopic ]
+  {% endfor %}
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName
+      AccessControl: BucketOwnerFullControl
+      #AccessControl: PublicRead
+    DeletionPolicy: Retain
+  # BucketPolicy:
+  #   Type: AWS::S3::BucketPolicy
+  #   Properties:
+  #     PolicyDocument:
+  #       Id: MyPolicy
+  #       Version: 2012-10-17
+  #       Statement:
+  #         - Sid: PublicReadForGetBucketObjects
+  #           Effect: Allow
+  #           Principal: 
+  #             AWS: !Sub "${AWS::AccountId}"
+  #           Action: 's3:GetObject'
+  #           Resource: !Join 
+  #             - ''
+  #             - - 'arn:aws:s3:::'
+  #               - !Ref S3Bucket
+  #               - /*
+  #     Bucket: !Ref S3Bucket
+Outputs:
+{% for service in variables.ServiceName.split(",") %}
+  AlarmArn{{loop.index}}:
+    Value: !GetAtt [WindowsServiceMonitorAlarm{{loop.index}}, Arn]
+{% endfor %}
+  WebsiteURL:
+    Value: !GetAtt 
+      - S3Bucket
+      - WebsiteURL
+    Description: URL for website hosted on S3
+  S3BucketSecureURL:
+    Value: !Join 
+      - ''
+      - - 'https://'
+        - !GetAtt 
+          - S3Bucket
+          - DomainName
+    Description: Name of S3 bucket to hold website content

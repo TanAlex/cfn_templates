@@ -1,0 +1,50 @@
+namespace: ${namespace}
+stacker_bucket: ${namespace}-${region}
+
+sys_path: ./stacker/modules/cw_agent
+
+common_parameters: &common_parameters
+  CustomerName: ${customer}
+  EnvironmentName: ${environment}
+  ApplicationName: core
+
+tags:
+  Environment: ${environment}
+
+stacks:
+  onica-service-metric-sender-ssm-document:
+    class_path: blueprints.ssm_doc.BlueprintClass
+    enabled: ${enable_sender_document}
+    variables:
+      <<: *common_parameters
+      DocumentName: onica-windows-metric-sender
+      DocumentContent: ${file parameterized:file://files/install-sendmetric-tool.ssm.document.json}
+      S3BucketName: ${s3_bucket_name}
+  onica-service-metric-alert-cfn:
+    template_path: templates/cw-alert.yaml.j2
+    enabled: ${enable_cw_alert}
+    variables:
+      <<: *common_parameters
+      EscalationTopic: ${escalation_topic}
+      InstanceId: ${instance_id}
+      CreateSNSTopic: ${create_sns_topic}
+      S3BucketName: ${s3_bucket_name}
+      ServiceName: ${service_name_to_monitor}
+
+post_build:
+  - path: hooks.upload_s3.upload_to_s3
+    required: true
+    data_key: json
+    enabled: ${enable_upload_s3}
+    args:
+      bucket: ${s3_bucket_name}
+      file_name: ./files/SendMetrics.ps1
+      service_name: ${service_name_to_monitor}
+      key_name: "SendMetrics.ps1"
+  - path: hooks.ssm_command.call_ssm_document
+    enabled: ${enable_send_ssm_command}
+    required: true
+    data_key: json
+    args:
+      document_name: ${output onica-service-metric-sender-ssm-document::DocumentName}
+      instance_ids: ${instance_id}

@@ -1,0 +1,25 @@
+namespace: ${namespace}
+stacker_bucket: ${namespace}-${region}
+sys_path: ../stacker/rds
+
+stacks:
+  - name: rds-subnet
+    class_path: rds_blueprints.rds_subnet.RdsSubnet
+    variables:
+      EnvironmentName: ${environment}
+      PriSubnets: ${xref ttan-lab-dev-core-vpc::PubSubnet1},${xref ttan-lab-dev-core-vpc::PubSubnet2}
+  - name: rds-instance
+    class_path: rds_blueprints.rds_instance.RdsInstance
+    variables:
+      EnvironmentName: ${environment}
+      ApplicationName: ASCTrac
+      DBUsername: admin
+      DBPassword: notasecret
+      RdsAllocatedStorage: 40
+      RdsEngineType: mssql-2016
+      RdsInstanceClass: db.m5.large
+      MultiAZ: 'false'
+      Encrypted: 'false'
+      VpcId: ${xref ttan-lab-dev-core-vpc::VPC}
+      DBSubnetGroupName: ${output rds-subnet::DBSubnetGroup}
+      BackupRetentionDays: 30

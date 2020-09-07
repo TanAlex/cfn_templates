@@ -1,0 +1,71 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Onica Create SNS Topics - 1.0.0
+
+Parameters:
+  CustomerName:
+    AllowedPattern: '[-_a-zA-Z]*'
+    Default: ''
+    Description: >-
+      The nickname for the customer. Must be all lowercase letters, should not
+      contain spaces or special characters, nor should it include any part of
+      EnvironmentName.
+    Type: String
+  EnvironmentName:
+    Default: common
+    Description: Name of Environment
+    Type: String
+  CritPagerDutyWebHook:
+    Description: Pager Duty webhook url for Critical Cloudwatch alarms
+    Type: String
+  LowPagerDutyWebHook:
+    Description: Pager Duty webhook url for Low CloudWatch Alarms
+    Type: String
+
+Resources:
+  CritPagerDutyAlert:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      DisplayName:
+        'Fn::Join':
+          - '-'
+          - - Ref: CustomerName
+            - Crit
+      TopicName:
+        'Fn::Join':
+          - '-'
+          - - Ref: CustomerName
+            - Crit
+      Subscription:
+        - Endpoint:
+            Ref: CritPagerDutyWebHook
+          Protocol: https
+
+  LowPagerDutyAlert:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      DisplayName:
+        'Fn::Join':
+          - '-'
+          - - Ref: CustomerName
+            - Low
+      TopicName:
+        'Fn::Join':
+          - '-'
+          - - Ref: CustomerName
+            - Low
+      Subscription:
+        - Endpoint:
+            Ref: LowPagerDutyWebHook
+          Protocol: https
+
+Outputs:
+  CritNotificationTopicArn:
+    Description: ARN for Critical Alarm Publish
+    Value:
+      Ref: CritPagerDutyAlert
+  LowNotificationTopicArn:
+    Description: ARN for Lowing Alarm Publish
+    Value:
+      Ref: LowPagerDutyAlert

@@ -1,0 +1,59 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description:
+  Create PublicSecurityGroup and PrivateSecurityGroup
+
+Parameters:
+  EnvironmentName:
+    Description: Environment that the stack belongs to
+    Type: String
+  VpcId:
+    Description: VpcId to attache to
+    Type: String
+
+Resources:
+  PublicSecurityGroup: 
+    Type: "AWS::EC2::SecurityGroup"
+    Properties: 
+      GroupDescription: Enable HTTP access via port 80
+      VpcId: !Ref VpcId
+      SecurityGroupIngress: 
+        - 
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - 
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - 
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - 
+          IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: 0.0.0.0/0
+  PrivateSecurityGroup: 
+    Type: "AWS::EC2::SecurityGroup"
+
+    Properties: 
+      GroupDescription: Enable private network
+      VpcId: !Ref VpcId 
+      SecurityGroupIngress: 
+        - 
+          IpProtocol: tcp
+          FromPort: 1
+          ToPort: 65535
+          CidrIp: 10.0.0.0/8
+Outputs:
+  PublicSecurityGroupId:
+    Description: A reference to the PublicSecurityGroup
+    Value: !GetAtt PublicSecurityGroup.GroupId
+  PrivateSecurityGroupId:
+    Description: A reference to the PrivateSecurityGroup
+    Value: !GetAtt PrivateSecurityGroup.GroupId

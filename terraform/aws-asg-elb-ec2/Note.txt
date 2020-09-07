@@ -1,0 +1,45 @@
+https://hackernoon.com/manage-aws-vpc-as-infrastructure-as-code-with-terraform-55f2bdb3de2a
+manage VPC and public/private subnet and Internet gateway and routing tables
+
+
+https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/viewing_metrics_with_cloudwatch.html
+list EC2 related cloudwatch metrics
+
+Apply complete! Resources: 11 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+elb_dns_name = terraform-asg-example-1355508889.us-west-2.elb.amazonaws.com
+instance_ids = [
+  [
+    "54.202.201.246",
+    "34.222.138.148",
+  ],
+]
+
+$ ssh ubuntu@54.202.201.246
+
+$ curl http://169.254.169.254/latest/meta-data/
+ami-id
+ami-launch-index
+ami-manifest-path
+block-device-mapping/
+events/
+hostname
+identity-credentials/
+instance-action
+instance-id
+instance-type
+local-hostname
+local-ipv4
+mac
+metrics/
+network/
+placement/
+profile
+public-hostname
+public-ipv4
+public-keys/
+reservation-id
+security-groups
+services/

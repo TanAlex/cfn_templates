@@ -1,0 +1,75 @@
+namespace: ${namespace}
+stacker_bucket: ${namespace}-${region}
+
+
+sys_path: ../stacker/core
+
+common_parameters: &common_parameters
+  EnvironmentName: ${environment}
+  CustomerName: ${customer}
+  ApplicationName: ${application}
+  ApplicationTier: data
+  CostCenter: undefined
+  TechOwner: platform
+  TechOwnerEmail: ttan@onica.com
+  DataClassification: none
+
+
+stacks:
+  core-vpc:
+    class_path: core_blueprints.vpc.Vpc
+    variables:
+      <<: *common_parameters
+      VpcInstanceTenancy: ${default vpc_instance_tenancy::default}
+      VpcCidr: ${vpc_cidr}
+      PublicSubnet1: ${public_subnet_1}
+      PublicSubnet2: ${public_subnet_2}
+      PublicSubnet3: ${public_subnet_3}
+      PrivateSubnet1: ${private_subnet_1}
+      PrivateSubnet2: ${private_subnet_2}
+      PrivateSubnet3: ${private_subnet_3}
+  kms-key:
+    template_path: templates/kms-key.yaml
+    #ParentAlertStack: sns_arn_to_alert_when_delete
+    #Service: default to all service is allowed to use the key
+    #No parameter required
+  server-iam-role:
+    template_path: templates/iam-role.json
+    variables:
+      << : *common_parameters
+  security-groups:
+    template_path: templates/security-group.yaml
+    variables:
+      << : *common_parameters
+      VpcId: ${output core-vpc::VPC}
+  windows-instance1:
+    template_path: ./templates/windows-instance-2.yaml
+    variables:
+      << : *common_parameters
+      Hostname: windows_instance1
+      KeyName: ${ssh_key}  #${default ssh-key::default}
+      PublicSecurityGroup: ${output security-groups::PublicSecurityGroupId}
+      PrivateSecurityGroup: ${output security-groups::PrivateSecurityGroupId}
+      PublicInstanceSubnet: ${output core-vpc::PubSubnet1}
+      PrivateInstanceSubnet: ${output core-vpc::PriSubnet1}
+      ImageId: ${windows_instance_image_id}
+      CDriveVolumeSize: 15
+      InstanceProfile: ${output server-iam-role::InstanceProfile}
+      KmsKeyId: ${output kms-key::KeyId}
+      AvailabilityZone: ${output core-vpc::PriSubnet1AZ}
+      #AvailabilityZone: "!Select [ 0, !GetAZs '' ]"
+  linux-instance1:
+    template_path: ./templates/linux-instance.yaml
+    variables:
+      << : *common_parameters
+      Hostname: linux_instance1
+      KeyName: ${ssh_key}  #${default ssh-key::default}
+      PublicSecurityGroup: ${output security-groups::PublicSecurityGroupId}
+      PrivateSecurityGroup: ${output security-groups::PrivateSecurityGroupId}
+      PublicInstanceSubnet: ${output core-vpc::PubSubnet1}
+      PrivateInstanceSubnet: ${output core-vpc::PriSubnet1}
+      #ImageId: ${windows_instance_image_id}
+      MainVolumeSize: 30
+      InstanceProfile: ${output server-iam-role::InstanceProfile}
+      #KmsKeyId: ${output kms-key::KeyId}
+      #AvailabilityZone: ${output core-vpc::PriSubnet1AZ}

@@ -1,0 +1,158 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description:
+  Base Windows with 2 instances
+
+Parameters:
+  EnvironmentName:
+    Description: Environment that the stack belongs to
+    Type: String
+
+  CustomerName:
+    Description: Customer that the stack belongs to
+    Type: String
+
+  CostCenter:
+    Description: Cost center number
+    Type: String
+
+  TechOwner:
+    Description: Name of tech owner
+    Type: String
+
+  TechOwnerEmail:
+    Description: Email of tech owner
+    Type: String
+
+  ApplicationName:
+    Description: Name of the application
+    Type: String
+
+  Hostname:
+    Description: Hostname
+    Type: String
+
+# Instance parameters
+
+  KeyName:
+    Description: Existing SSH Key Pair Used
+    Type: AWS::EC2::KeyPair::KeyName
+
+  PublicSecurityGroup:
+    Description: Public Security Group
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: AWS::NoValue
+
+  PrivateSecurityGroup:
+    Description: Private Security Group
+    Type: AWS::EC2::SecurityGroup::Id
+
+  PublicInstanceSubnet:
+    Description: Existing subnet instance is deployed in to
+    Type: AWS::EC2::Subnet::Id
+    Default: ''
+
+  PrivateInstanceSubnet:
+    Description: Existing subnet instance is deployed in to
+    Type: AWS::EC2::Subnet::Id
+
+  ImageId:
+    Description: AMI to base instance off of
+    Type: AWS::EC2::Image::Id
+
+  InstanceType:
+    Description: Instance size
+    Type: String
+    Default: t2.micro
+
+  InstanceProfile:
+    Type: String
+
+# Volumes
+
+  CDriveVolumeSize:
+    Type: Number
+    Default: 30
+
+  DDriveVolumeSize:
+    Type: Number
+    Default: 30
+
+  AvailabilityZone:
+    Type: String
+
+  KmsKeyId:
+    Type: String
+
+# Conditions
+
+  CWAgentDocument:
+    Description: Name of CW Agent Document to be Associated. "none" won't create an association.
+    Type: String
+    Default: none
+
+Conditions:
+  AssociateSSMDocument: !Not [!Equals [ !Ref CWAgentDocument, none ] ]
+  HasPublicInterface: !Not [!Equals [!Ref PublicInstanceSubnet, "" ]]
+
+Resources:
+  WindowsInstance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      UserData:
+        Fn::Base64:
+            !Sub |
+            <powershell>
+            # Initialize-Disk -Number 1 -PartitionStyle GPT
+            # New-Partition -DiskNumber 1 -UseMaximumSize  -DriveLetter D
+            # Format-Volume -DriveLetter D -FileSystem NTFS
+            # Rename-Computer -NewName ${Hostname} -Restart -Confirm:$false
+            </powershell>
+      # Tenancy: dedicated https://aws.amazon.com/blogs/security/aws-hipaa-program-update-dedicated-instances-and-hosts-are-no-longer-required/
+      IamInstanceProfile: !Ref InstanceProfile
+      ImageId: !Ref ImageId
+      KeyName: !Ref KeyName
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: 
+            - !Ref PublicSecurityGroup
+          SubnetId: 
+            Ref: PublicInstanceSubnet
+  WindowsInstance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      UserData:
+        Fn::Base64:
+            !Sub |
+            <powershell>
+            # Initialize-Disk -Number 1 -PartitionStyle GPT
+            # New-Partition -DiskNumber 1 -UseMaximumSize  -DriveLetter D
+            # Format-Volume -DriveLetter D -FileSystem NTFS
+            # Rename-Computer -NewName ${Hostname} -Restart -Confirm:$false
+            </powershell>
+      # Tenancy: dedicated https://aws.amazon.com/blogs/security/aws-hipaa-program-update-dedicated-instances-and-hosts-are-no-longer-required/
+      IamInstanceProfile: !Ref InstanceProfile
+      ImageId: !Ref ImageId
+      KeyName: !Ref KeyName
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: 
+            - !Ref PrivateSecurityGroup
+            #- !Ref PublicSecurityGroup
+          SubnetId: 
+            Ref: PrivateInstanceSubnet
+            #Ref: PublicInstanceSubnet
+Outputs:
+  WindowsInstanceId1:
+    Description: A reference to the base instance created
+    Value: !Ref WindowsInstance1
+  WindowsInstanceId2:
+    Description: A reference to the base instance created
+    Value: !Ref WindowsInstance2
+  # DVolumeId:
+  #   Description: D Drive VolumeId
+  #   Value: !Ref DDrive

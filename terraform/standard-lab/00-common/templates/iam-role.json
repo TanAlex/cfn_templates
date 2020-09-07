@@ -1,0 +1,47 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "IAM Role for API Servers - 1.0.0",
+  "Resources": {
+    "IamRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
+          "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy",
+          "arn:aws:iam::aws:policy/service-role/AmazonSSMMaintenanceWindowRole",
+          "arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess"
+        ],
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": [ "ec2.amazonaws.com" ] },
+              "Action": [ "sts:AssumeRole" ]
+            }
+          ]
+        },
+        "Path": "/"
+      }
+    },
+    "InstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [{"Ref": "IamRole"}]
+      }
+    }
+  },
+  "Outputs": {
+    "InstanceProfile": {
+      "Description": "The name of the InstanceProfile",
+      "Value": {"Ref": "InstanceProfile"},
+      "Export": {"Name": {"Fn::Sub": "${AWS::StackName}-InstanceProfile"}}
+    },
+    "IamRole": {
+      "Description": "The id of the IamRole role used for InstanceProfile",
+      "Value": {"Ref": "IamRole"},
+      "Export": {"Name": {"Fn::Sub": "${AWS::StackName}-IamRole"}}
+    }
+  }
+}

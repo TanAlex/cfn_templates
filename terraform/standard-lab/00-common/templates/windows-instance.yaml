@@ -1,0 +1,225 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description:
+  Base instance Windows - with D Drive powershell script
+
+Parameters:
+  EnvironmentName:
+    Description: Environment that the stack belongs to
+    Type: String
+
+  CustomerName:
+    Description: Customer that the stack belongs to
+    Type: String
+
+  CostCenter:
+    Description: Cost center number
+    Type: String
+
+  TechOwner:
+    Description: Name of tech owner
+    Type: String
+
+  TechOwnerEmail:
+    Description: Email of tech owner
+    Type: String
+
+  ApplicationName:
+    Description: Name of the application
+    Type: String
+
+  Hostname:
+    Description: Hostname
+    Type: String
+
+# Instance parameters
+
+  KeyName:
+    Description: Existing SSH Key Pair Used
+    Type: AWS::EC2::KeyPair::KeyName
+
+  PublicSecurityGroup:
+    Description: Public Security Group
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: AWS::NoValue
+
+  PrivateSecurityGroup:
+    Description: Private Security Group
+    Type: AWS::EC2::SecurityGroup::Id
+
+  PublicInstanceSubnet:
+    Description: Existing subnet instance is deployed in to
+    Type: AWS::EC2::Subnet::Id
+    Default: ''
+
+  PrivateInstanceSubnet:
+    Description: Existing subnet instance is deployed in to
+    Type: AWS::EC2::Subnet::Id
+
+  ImageId:
+    Description: AMI to base instance off of
+    Type: AWS::EC2::Image::Id
+
+  InstanceType:
+    Description: Instance size
+    Type: String
+    Default: t2.micro
+
+  InstanceProfile:
+    Type: String
+
+# Volumes
+
+  CDriveVolumeSize:
+    Type: Number
+    Default: 30
+
+  DDriveVolumeSize:
+    Type: Number
+    Default: 30
+
+  AvailabilityZone:
+    Type: String
+
+  KmsKeyId:
+    Type: String
+
+# Conditions
+
+  CWAgentDocument:
+    Description: Name of CW Agent Document to be Associated. "none" won't create an association.
+    Type: String
+    Default: none
+
+Conditions:
+  AssociateSSMDocument: !Not [!Equals [ !Ref CWAgentDocument, none ] ]
+  HasPublicInterface: !Not [!Equals [!Ref PublicInstanceSubnet, "" ]]
+
+Resources:
+  WindowsInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      UserData:
+        Fn::Base64:
+            !Sub |
+            <powershell>
+            Initialize-Disk -Number 1 -PartitionStyle GPT
+            New-Partition -DiskNumber 1 -UseMaximumSize  -DriveLetter D
+            Format-Volume -DriveLetter D -FileSystem NTFS
+            Rename-Computer -NewName ${Hostname} -Restart -Confirm:$false
+            </powershell>
+      # Tenancy: dedicated https://aws.amazon.com/blogs/security/aws-hipaa-program-update-dedicated-instances-and-hosts-are-no-longer-required/
+      IamInstanceProfile: !Ref InstanceProfile
+      ImageId: !Ref ImageId
+      KeyName: !Ref KeyName
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: 
+            - !Ref PublicSecurityGroup
+          SubnetId: 
+            Ref: PublicInstanceSubnet
+        # -
+        #   DeviceIndex: "1"
+        #   GroupSet:
+        #     - !Ref PrivateSecurityGroup
+        #   SubnetId: !Ref PrivateInstanceSubnet
+  #     BlockDeviceMappings:
+  #       - DeviceName: "/dev/sda1"
+  #         Ebs:
+  #           VolumeType: "gp2"
+  #           DeleteOnTermination: false
+  #           VolumeSize: !Ref CDriveVolumeSize
+  #           Encrypted: true
+  #     Volumes:
+  #       -
+  #         Device: "/dev/xvdb"
+  #         VolumeId: !Ref DDrive
+  #     Tags:
+  #       -
+  #         Key: Name
+  #         Value: !Ref Hostname
+  #       -
+  #         Key: Hostname
+  #         Value: !Ref Hostname
+  #       -
+  #         Key: Application
+  #         Value: !Ref ApplicationName
+  #       -
+  #         Key: Environment
+  #         Value: !Ref EnvironmentName
+  #       -
+  #         Key: CostCenter
+  #         Value: !Ref CostCenter
+  #       -
+  #         Key: TechOwner
+  #         Value: !Ref TechOwner
+  #       -
+  #         Key: TechOwnerEmail
+  #         Value: !Ref TechOwnerEmail
+  #       -
+  #         Key: CustomerName
+  #         Value: !Ref CustomerName
+  #       -
+  #         Key: Backup
+  #         Value: "Daily"
+  #       -
+  #         Key: backup
+  #         Value: "true"
+  # DDrive:
+  #   Type: AWS::EC2::Volume
+  #   Properties:
+  #     AvailabilityZone: !Ref AvailabilityZone
+  #     KmsKeyId: !Ref KmsKeyId
+  #     Size: !Ref DDriveVolumeSize
+  #     Tags:
+  #       -
+  #         Key: Name
+  #         Value: !Ref Hostname
+  #       -
+  #         Key: Hostname
+  #         Value: !Ref Hostname
+  #       -
+  #         Key: Application
+  #         Value: !Ref ApplicationName
+  #       -
+  #         Key: Environment
+  #         Value: !Ref EnvironmentName
+  #       -
+  #         Key: CostCenter
+  #         Value: !Ref CostCenter
+  #       -
+  #         Key: TechOwner
+  #         Value: !Ref TechOwner
+  #       -
+  #         Key: TechOwnerEmail
+  #         Value: !Ref TechOwnerEmail
+  #       -
+  #         Key: CustomerName
+  #         Value: !Ref CustomerName
+  #       -
+  #         Key: Backup
+  #         Value: "Daily"
+  #       -
+  #         Key: backup
+  #         Value: "true"
+  #     VolumeType:  "gp2"
+  #     Encrypted: True
+  WindowsInstanceSSMAssociation:
+    Condition: AssociateSSMDocument
+    Type: "AWS::SSM::Association"
+    Properties:
+      AssociationName: !Join [ "-", [ !Ref CustomerName, !Ref ApplicationName, !Ref EnvironmentName ] ]
+      Name: !Ref CWAgentDocument
+      Targets:
+      - Key: InstanceIds
+        Values: [!Ref WindowsInstance]
+
+Outputs:
+  WindowsInstanceId:
+    Description: A reference to the base instance created
+    Value: !Ref WindowsInstance
+  # DVolumeId:
+  #   Description: D Drive VolumeId
+  #   Value: !Ref DDrive

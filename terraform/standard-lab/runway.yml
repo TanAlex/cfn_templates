@@ -1,0 +1,21 @@
+---
+# See full syntax at https://github.com/onicagroup/runway
+ignore_git_branch: true
+
+account_ids: &account_ids
+  dev: 788562962147
+
+deployments:
+  - name: common
+    modules:
+      - 00-common
+    regions:
+      - us-west-2
+  - modules:
+      - 20-rds
+    regions:
+      - us-west-2
+  - modules:
+      - 30-SetupServiceMonitorAlarm
+    regions:
+      - us-west-2
