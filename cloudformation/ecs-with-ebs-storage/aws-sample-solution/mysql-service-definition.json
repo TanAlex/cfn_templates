@@ -1,0 +1,30 @@
+{
+    "cluster": "rexray-demo",
+    "serviceName": "mysql-svc",
+    "taskDefinition": "arn:aws:ecs:us-west-1:820203652332:task-definition/mysql:3",
+    "loadBalancers": [
+        {
+            "targetGroupArn": "arn:aws:elasticloadbalancing:us-west-1:820203652332:targetgroup/rexra-MySQL-Y3A3880K3VD9/4be5ddd2f2b16299",
+            "containerName": "mysql",
+            "containerPort": 3306
+        }
+    ],
+    "desiredCount": 1,
+    "launchType": "EC2",
+    "healthCheckGracePeriodSeconds": 60, 
+    "deploymentConfiguration": {
+        "maximumPercent": 100,
+        "minimumHealthyPercent": 0
+    },
+    "networkConfiguration": {
+        "awsvpcConfiguration": {
+            "subnets": [
+                "subnet-0ec52dc78e94d50b3"
+            ],
+            "securityGroups": [
+                "sg-0f6dc88b4fed09bc0"
+            ],
+            "assignPublicIp": "DISABLED"
+        }
+    }
+}

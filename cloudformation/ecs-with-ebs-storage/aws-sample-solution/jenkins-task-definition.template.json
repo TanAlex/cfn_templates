@@ -1,0 +1,62 @@
+{
+    "containerDefinitions": [
+        {
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "${CWLogGroupName}",
+                    "awslogs-region": "${AWSRegion}",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            },
+            "portMappings": [
+                {
+                    "containerPort": 8080,
+                    "protocol": "tcp"
+                }
+            ],
+            "environment": [
+                {
+                    "name": "JAVA_OPTS",
+                    "value": "hudson.footerURL=https://onica.com"
+                }
+            ],
+            "mountPoints": [
+                {
+                    "containerPath": "/var/jenkins_home",
+                    "sourceVolume": "rexray-vol"
+                }
+            ],
+            "image": "jenkins/jenkins:lts",
+            "essential": true,
+            "name": "jenkins"
+        }
+    ],
+    "placementConstraints": [
+        {
+            "type": "memberOf",
+            "expression": "attribute:ecs.availability-zone==${AvailabilityZone}"
+        }
+    ],
+    "memory": "512",
+    "family": "jenkins",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": [
+        "EC2"
+    ],
+    "cpu": "512",
+    "volumes": [
+        {
+            "name": "rexray-vol",
+            "dockerVolumeConfiguration": {
+                "autoprovision": true,
+                "scope": "shared",
+                "driver": "rexray/ebs",
+                "driverOpts": {
+                    "volumetype": "gp2",
+                    "size": "5"
+                }
+            }
+        }
+    ]
+}

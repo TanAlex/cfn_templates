@@ -1,0 +1,30 @@
+{
+    "cluster": "rexray-demo",
+    "serviceName": "jenkins-svc",
+    "taskDefinition": "arn:aws:ecs:us-west-1:820203652332:task-definition/jenkins:4",
+    "loadBalancers": [
+        {
+            "targetGroupArn": "arn:aws:elasticloadbalancing:us-west-1:820203652332:targetgroup/ecs-e-WebTa-2EDG7YZAYGEA/cdc223a95a8dfb2e",
+            "containerName": "jenkins",
+            "containerPort": 8080
+        }
+    ],
+    "desiredCount": 1,
+    "launchType": "EC2",
+    "healthCheckGracePeriodSeconds": 300, 
+    "deploymentConfiguration": {
+        "maximumPercent": 100,
+        "minimumHealthyPercent": 0
+    },
+    "networkConfiguration": {
+        "awsvpcConfiguration": {
+            "subnets": [
+                "subnet-06bef34b6fc75cf86"
+            ],
+            "securityGroups": [
+                "sg-0d6db36607be0dd07"
+            ],
+            "assignPublicIp": "DISABLED"
+        }
+    }
+}

@@ -1,0 +1,56 @@
+{
+    "containerDefinitions": [
+        {
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "ecs-ebs-test-CWLogsGroup-fkUrscwnAEGO",
+                    "awslogs-region": "us-west-1",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            },
+            "portMappings": [
+                {
+                    "containerPort": 8080,
+                    "protocol": "tcp"
+                }
+            ],
+            "mountPoints": [
+                {
+                    "containerPath": "/var/jenkins_home",
+                    "sourceVolume": "jenkins-vol"
+                }
+            ],
+            "image": "jenkins/jenkins:lts",
+            "essential": true,
+            "name": "jenkins"
+        }
+    ],
+    "placementConstraints": [
+        {
+            "type": "memberOf",
+            "expression": "attribute:ecs.availability-zone==us-west-1a"
+        }
+    ],
+    "memory": "512",
+    "family": "jenkins",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": [
+        "EC2"
+    ],
+    "cpu": "512",
+    "volumes": [
+        {
+            "name": "jenkins-vol",
+            "dockerVolumeConfiguration": {
+                "autoprovision": true,
+                "scope": "shared",
+                "driver": "rexray/ebs",
+                "driverOpts": {
+                    "volumetype": "gp2",
+                    "size": "5"
+                }
+            }
+        }
+    ]
+}
