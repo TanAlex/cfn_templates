@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates parameters in SSM for Trend Micro Deep Security Smart Check sensitive information.
+
+Parameters:
+  DeepSecuritySmartCheckURL:
+    Type: String
+    Description: URL to the installation of the Trendmicro Deep Security Scan Check application.
+  DeepSecuritySmartCheckUser:
+    Type: String
+    Description: The Deep Security Smart Check username (for bearer token generation).
+    NoEcho: true
+  DeepSecuritySmartCheckPassword:
+    Type: String
+    Description: The Deep Security Smart Check password.
+    NoEcho: true
+  DeepSecuritySmartCheckSecret:
+    Type: String
+    Description: Secret used when calculating HMAC SHA256 hash
+    NoEcho: true
+
+Resources:
+
+  DSSCUrl:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /pipeline/example/trendmicro/dssc/url
+      Type: String
+      Value: !Ref DeepSecuritySmartCheckURL
+      Description: Trendmicor Deep Security Smart Check URL
+
+  DSSCUser:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /pipeline/example/trendmicro/dssc/username
+      Type: String
+      Value: !Ref DeepSecuritySmartCheckUser
+      Description: Trendmicor Deep Security Smart Check user
+
+  DSSCPassword:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /pipeline/example/trendmicro/dssc/password
+      Type: String
+      Value: !Ref DeepSecuritySmartCheckPassword
+      Description: Trendmicor Deep Security Smart Check password
+
+  DSSCSecret:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /pipeline/example/trendmicro/dssc/secret
+      Type: String
+      Value: !Ref DeepSecuritySmartCheckSecret
+      Description: Trendmicor Deep Security Smart Check Secret

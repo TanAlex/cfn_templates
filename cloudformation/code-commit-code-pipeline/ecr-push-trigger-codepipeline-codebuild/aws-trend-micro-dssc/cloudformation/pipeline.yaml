@@ -1,0 +1,293 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a Pipeline and a CloudWatch event listener for integration with Trendmicro Deep Security Smart Check.
+
+Parameters:
+  RepositoryUri:
+    Type: String
+    Description: The ECR repository for the application being scanned.
+  TagName:
+    Type: String
+    Description: The tag of the image
+    Default: latest
+
+Resources:
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+
+  ArtifactBucketSSM:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /pipeline/example/trendmicro/artifactbucket/name
+      Type: String
+      Value: !Ref ArtifactBucket
+      Description: Artifact bucket name
+
+  BuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: codebuild.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*
+              - Effect: Allow
+                Action:
+                  - s3:Get*
+                  - s3:List*
+                  - s3:Put*
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub arn:aws:s3:::${ArtifactBucket}
+                  - !Sub arn:aws:s3:::${ArtifactBucket}/*
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pipeline/example/trendmicro/*
+
+  PipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: codepipeline-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:*
+                Resource:
+                  - '*'
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource:
+                  - !Sub arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AWS::StackName}-service-securityscan
+                  - !Sub arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AWS::StackName}-service-deploy
+              - Effect: Allow
+                Action:
+                  - s3:Get*
+                  - s3:List*
+                  - s3:Put*
+                Resource:
+                  - !Sub arn:aws:s3:::${ArtifactBucket}
+                  - !Sub arn:aws:s3:::${ArtifactBucket}/*
+
+  SecurityScanProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+        Name: !Sub ${AWS::StackName}-service-securityscan
+        Artifacts:
+          Type: CODEPIPELINE
+        Environment:
+          Type: LINUX_CONTAINER
+          ComputeType: BUILD_GENERAL1_SMALL
+          Image: aws/codebuild/amazonlinux2-x86_64-standard:1.0
+          EnvironmentVariables:
+            - Name: DSSC_URL
+              Type: PARAMETER_STORE
+              Value: /pipeline/example/trendmicro/dssc/url
+            - Name: USERNAME
+              Type: PARAMETER_STORE
+              Value: /pipeline/example/trendmicro/dssc/username
+            - Name: PASSWORD
+              Type: PARAMETER_STORE
+              Value: /pipeline/example/trendmicro/dssc/password
+            - Name: REPOSITORY_URI
+              Type: PLAINTEXT
+              Value: !Ref RepositoryUri
+            - Name: REPOSITORY_NAME
+              Type: PARAMETER_STORE
+              Value: /pipeline/example/trendmicro/repository/name
+            - Name: TAG_NAME
+              Type: PLAINTEXT
+              Value: !Ref TagName
+            - Name: WEBHOOK_URL
+              Type: PARAMETER_STORE
+              Value: /pipeline/example/trendmicro/dssc/webhook
+            - Name: DSSC_SECRET
+              Type: PARAMETER_STORE
+              Value: /pipeline/example/trendmicro/dssc/secret
+            - Name: PIPELINE_NAME
+              Type: PLAINTEXT
+              Value: !Sub '${AWS::StackName}'
+        Source:
+            Type: CODEPIPELINE
+            BuildSpec: |
+              version: 0.2
+              phases:
+                install:
+                  runtime-versions:
+                    python: 3.7
+                build:
+                  commands:
+                    - TOKEN=$(curl -k ${DSSC_URL}/api/sessions -X POST -H 'Content-type:application/json' --data "{\"user\":{\"userID\":\"${USERNAME}\",\"password\":\"${PASSWORD}\"}}"| grep token | cut -d '"' -f 4)
+                    - curl -k -X POST ${DSSC_URL}/api/scans -H 'Content-type:application/json' -H "Authorization:Bearer ${TOKEN}" --data "{\"name\":\"${PIPELINE_NAME}-${PIPELINE_EXECUTION_ID}\",\"context\":{\"pipeline_execution_id\":\"${PIPELINE_EXECUTION_ID}\",\"pipeline_name\":\"${PIPELINE_NAME}\",\"dssc_url\":\"${DSSC_URL}\"},\"source\":{\"type\":\"docker\",\"registry\":\"${REPOSITORY_URI}\",\"repository\":\"${REPOSITORY_NAME}\",\"tag\":\"${TAG_NAME}\",\"credentials\":{\"aws\":{\"region\":\"${AWS_REGION}\"}}},\"webhooks\":[{\"secret\":\"${DSSC_SECRET}\",\"name\":\"${PIPELINE_NAME}-build-webhook\",\"hookUrl\":\"${WEBHOOK_URL}\",\"events\":[\"scan-completed\"]}]}"
+              artifacts:
+                files:
+                  - '**/*'
+              type: zip
+        ServiceRole: !GetAtt BuildServiceRole.Arn
+
+  ServiceDeployProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+        Name: !Sub ${AWS::StackName}-service-deploy
+        Artifacts:
+          Type: CODEPIPELINE
+        Environment:
+          Type: LINUX_CONTAINER
+          ComputeType: BUILD_GENERAL1_SMALL
+          Image: aws/codebuild/amazonlinux2-x86_64-standard:1.0
+        Source:
+            Type: CODEPIPELINE
+            BuildSpec: |
+              version: 0.2
+              phases:
+                install:
+                  runtime-versions:
+                    python: 3.7
+
+                build:
+                  commands:
+                    - echo "Deploying!"
+              artifacts:
+                files:
+                  - '**/*'
+              type: zip
+        ServiceRole: !GetAtt BuildServiceRole.Arn
+
+
+  ApplicationPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub ${AWS::StackName}
+      RoleArn: !GetAtt PipelineServiceRole.Arn
+      ArtifactStore:
+        Location: !Ref ArtifactBucket
+        Type: S3
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceCheckout
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: ECR
+                Version: '1'
+              Configuration:
+                ImageTag: !Ref TagName
+                RepositoryName: '{{resolve:ssm:/pipeline/example/trendmicro/repository/name:1}}'
+              OutputArtifacts:
+                - Name: SourceCode
+              RunOrder: 1
+        - Name: Build
+          Actions:
+          - Name: SecurityScan
+            ActionTypeId:
+              Category: Test
+              Owner: AWS
+              Provider: CodeBuild
+              Version: 1
+            Configuration:
+                ProjectName: !Ref SecurityScanProject
+                EnvironmentVariables: "[{\"name\":\"PIPELINE_EXECUTION_ID\",\"value\":\"#{codepipeline.PipelineExecutionId}\",\"type\":\"PLAINTEXT\"}]"
+            InputArtifacts:
+                - Name: SourceCode
+            OutputArtifacts:
+                - Name: SecurityScanArtifact
+            RunOrder: 1
+        - Name: ApproveDeployment
+          Actions:
+          - Name: SecurityScanApproval
+            ActionTypeId:
+              Category: Approval
+              Owner: AWS
+              Provider: 'Manual'
+              Version: 1
+            Configuration:
+              CustomData: 'Security Scan Approval to deploy new container changes.'
+            RunOrder: 1
+        - Name: Deploy
+          Actions:
+          - Name: Service
+            ActionTypeId:
+              Category: Build
+              Owner: AWS
+              Provider: CodeBuild
+              Version: 1
+            Configuration:
+                ProjectName: !Ref ServiceDeployProject
+            InputArtifacts:
+                - Name: SourceCode
+            OutputArtifacts:
+                - Name: ServiceDeployArtifact
+            RunOrder: 1
+
+  AmazonCloudWatchEventRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        -
+          PolicyName: cwe-pipeline-execution
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Effect: Allow
+                Action: codepipeline:StartPipelineExecution
+                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${ApplicationPipeline}
+
+  AmazonCloudWatchEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        detail:
+          action-type: [PUSH]
+          image-tag: [!Ref TagName]
+          repository-name: ['{{resolve:ssm:/pipeline/example/trendmicro/repository/name:1}}']
+          result: [SUCCESS]
+        detail-type: [ECR Image Action]
+        source: [aws.ecr]
+      Targets:
+        - Arn: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${ApplicationPipeline}
+          RoleArn: !GetAtt AmazonCloudWatchEventRole.Arn
+          Id: codepipeline-AppPipeline

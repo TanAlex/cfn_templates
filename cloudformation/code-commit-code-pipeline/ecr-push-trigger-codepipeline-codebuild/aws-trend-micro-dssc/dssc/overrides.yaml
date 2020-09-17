@@ -1,0 +1,803 @@
+# Default values for smartcheck.
+# This is a YAML-formatted file.
+
+## activationCode is the product activation code.
+##
+## Default value: (none)
+activationCode:
+
+## extraLabels is a dictionary of additional labels that will be added to all resources
+## created by this chart.
+extraLabels: {}
+
+ipv6:
+  ## enabled controls whether the proxy listens on IPv6 addresses internally. This does
+  ## not affect whether the load balancer (if service.type is `LoadBalancer`) exposes an IPv6
+  ## interface.
+  ##
+  ## You should only modify this value if you encounter problems deploying with the defaults.
+  ## If the `proxy` pod fails to start and reports an error like this:
+  ##   [emerg] 1#1: socket() [::]:8080 failed (97: Address family not supported by protocol)
+  ## then setting ipv6.enabled=false may resolve the issue.
+  ##
+  ## Default value: true
+  enabled: true
+
+rateLimiting:
+  api:
+    ## The maximum API request rate (per source IP address) in requests per second.
+    ##
+    ## Default value: 10
+    rate: 10
+
+    ## The allowable burst rate. If this is greater than 0, then requests that exceed
+    ## the maximum API request rate will be queued.
+    ##
+    ## This does not change the rate of requests that are sent to the backend services.
+    ## Queued requests will be sent to the backend services at the rate defined in
+    ## `rateLimiting.api.rate`.
+    ##
+    ## Default value: 10
+    burst: 10
+
+    ## The HTTP response status code to send when a request is rejected due to the rate
+    ## limit being exceeded.
+    ##
+    ## Default value: 429 (Too many requests)
+    status: 429
+
+    ## The size, in megabytes, of the rate limiting memory zone. State monitoring for
+    ## about 16,000 IP addresses takes 1 megabyte.
+    ##
+    ## Default value: 10
+    size: 10
+
+proxy:
+  ## httpProxy, if set, will be used as the proxy for HTTP traffic from
+  ## Deep Security Smart Check.
+  ##
+  ## The value may be either a complete URL or a `host[:port]`, in which
+  ## case the `http` scheme is assumed.
+  ##
+  ## Default value: (none)
+  httpProxy:
+
+  ## httpsProxy, if set, will be used as the proxy for HTTPS traffic from
+  ## Deep Security Smart Check. If `httpsProxy` is not set, `httpProxy`
+  ## is also checked and will be used if set.
+  ##
+  ## The value may be either a complete URL or a `host[:port]`, in which
+  ## case the `http` scheme is assumed.
+  ##
+  ## Default value: (none)
+  httpsProxy:
+
+  ## noProxy, if set, is a list of hosts or `host:port` combinations which
+  ## should not be accessed through the proxy.
+  ##
+  ## Default value: (none)
+  noProxy: []
+
+  ## username, if set, is the user name to provide to the outbound proxy when making requests.
+  ##
+  ## Default value: (none)
+  username:
+
+  ## password, if set, is the password to provide to the outbound proxy when making requests.
+  ##
+  ## Default value: (none)
+  password:
+
+auth:
+  ## secretSeed is used as part of the password generation process for
+  ## all auto-generated internal passwords, ensuring that each installation of
+  ## Deep Security Smart Check has different passwords.
+  ##
+  ## Default value: {must be provided by the installer}
+  secretSeed: no-thank-you
+
+  saml:
+    ## enabled controls whether SAML authentication will be enabled.
+    ##
+    ## `location` is also required to be set for SAML authentication to be fully enabled.
+    ##
+    ## Default value: false
+    enabled: false
+
+    ## location is the location of the SAML assertion consumer service. This should be set to
+    ## the DNS name that your users will use to access Deep Security Smart Check, for example
+    ## `smartcheck.example.com`. If your users will access Deep Security Smart Check on a non-standard
+    ## port, you can include the port number as well, for example `smartcheck.example.com:8443`.
+    ## The value will be expanded to set the URL scheme and path if not provided, so if `location` is
+    ## set to `smartcheck.example.com`, then the final value will be `https://smartcheck.example.com/saml`).
+    ##
+    ## If `location` is not set, then SAML authentication will not be enabled regardless of the
+    ## setting of `enabled`.
+    ##
+    ## Default value: (none)
+    location:
+
+    ## entityID is the SAML entity ID for Deep Security Smart Check as a service provider.
+    ## If not provided, the default is copied from the `location` value after expansion (for example,
+    ## if `location` is set to `smartcheck.example.com`, then `entityID` will be
+    ## `https://smartcheck.example.com/saml`).
+    ##
+    ## Default value: derived from the `location` value.
+    entityID:
+
+    ## maxRoles is the maximum number of roles that Deep Security Smart Check will permit in a
+    ## SAML assertion.
+    ##
+    ## Default value: 10
+    maxRoles: 10
+
+  ## roleName is the name of the default administrator role that the system creates on startup.
+  ## If a role with this name already exists, no action will be taken.
+  ##
+  ## Default value: administrator
+  roleName: administrator
+
+  ## auditorRoleName is the name of the default auditor role that the system creates on startup.
+  ## If a role with this name already exists, no action will be taken.
+  ##
+  ## Default value: auditor
+  auditorRoleName: auditor
+
+  ## userRoleName is the name of the default user role that the system creates on startup.
+  ## If a role with this name already exists, no action will be taken.
+  ##
+  ## Default value: user
+  userRoleName: user
+
+  ## userName is the name of the default administrator user that the system creates on startup.
+  ## If a user with this name already exists, no action will be taken.
+  ##
+  ## Default value: administrator
+  userName: administrator
+
+  ## password is the password assigned to the default administrator that the system creates on startup.
+  ## If a user with the name `auth.userName` already exists, no action will be taken.
+  ##
+  ## Default value: a generated password derived from the secretSeed and system details
+  password: # autogenerated
+
+  ## audience is the value inserted into the JWT token for authentication.
+  ##
+  ## Default value: deepsecurity-smartcheck
+  audience: deepsecurity-smartcheck
+
+  ## Session tokens are issued for a specific duration.
+  ## This must be less than `auth.sessionKeyLifetime`.
+  ##
+  ## Default value: 1h
+  ## Minimum value: 15m
+  ## Maximum value: `auth.sessionKeyLifetime`
+  sessionDuration: 1h
+
+  ## Session tokens are signed by a key that is rotated every `auth.sessionKeyLifetime`.
+  ## This must be greater than `auth.sessionDuration`.
+  ##
+  ## Default value: 24h
+  ## Minimum value: 1h
+  ## Maximum value: 168h
+  sessionKeyLifetime: 24h
+
+certificate:
+  secret:
+    ## name is the name of the existing secret that stores the service's certificate and private key.
+    ## If this is not provided, the chart will generate a self-signed certificate and private key
+    ## for the service to present.
+    ##
+    ## The secret must exist in the same namespace as the service.
+    ##
+    ## Default value: none
+    name:
+
+    ## certificate is the name of the key inside the secret that stores the service's certificate.
+    ## The value of the secret must be the PEM-encoded certificate or certificate chain for the service.
+    ## This value is required if `certificate.secret.name` is set.
+    ##
+    ## Default value: none
+    certificate:
+
+    ## privateKey is the name of the key inside the secret that stores the service's private key that
+    ## matches the certificate. The value of the secret must be the PEM-encoded private key for the service.
+    ## The private key must not be protected by a passphrase.
+    ## This value is required if `certificate.secret.name` is set.
+    ##
+    ## Default value: none
+    privateKey:
+
+  ## commonName is the common name to use in the default self-signed certificate.
+  ##
+  ## Default value: example.com
+  commonName: example.com
+
+  ## ipAlternativeNames is a list of IP addresses to include as alternate names.
+  ## in the default self-signed certificate.
+  ##
+  ## Default value: []
+  ipAlternativeNames: []
+
+  ## dnsAlternativeNames is a list of DNS names to include as alternate names
+  ## in the default self-signed certificate.
+  ##
+  ## Default value: []
+  dnsAlternativeNames: []
+
+  ## lifetime is the lifetime in days of the default self-signed certificate.
+  ##
+  ## Default value: 3650
+  lifetime: 3650
+
+service:
+  ## type is the Kubernetes Service type for the `proxy` service that acts as
+  ## an entry point to the system.
+  ##
+  ## LoadBalancer will expose the service externally using the cluster provider's load balancer.
+  ## ClusterIP will expose the service on an internal cluster IP address.
+  ## NodePort will expose the service on each Node's IP address.
+  ##
+  ## See also: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services---service-types
+  ##
+  ## Default value: LoadBalancer
+  type: LoadBalancer
+
+  ## httpsPort is the port where the service will listen for HTTPS requests.
+  ##
+  ## Default value: 443
+  httpsPort: 443
+
+  ## httpPort is the port where the service will listen for HTTP requests.
+  ## The service will automatically redirect all HTTP requests to HTTPS.
+  ##
+  ## TODO confirm that this is true (it appears not to be)
+  ##
+  ## Default value: 80
+  httpPort: 80
+
+  ## registryPort is the port where the service will listen for docker registry requests.
+  ## It is only valid when dockerRegistry is enabled.
+  ##
+  ## Default value: 5000
+  registryPort: 5000
+
+  ## annotations is arbitrary non-identifying metadata for the `proxy` service.
+  ## Some cloud providers support different load balancer settings via annotations.
+  ##
+  ## Default value: {}
+  annotations: {}
+
+  ## loadBalancerSourceRanges is a list of of IP CIDR ranges which Kubernetes will
+  ## use to configure firewall exceptions for access to the service.
+  ##
+  ## See also: https://kubernetes.io/docs/tasks/access-application-cluster/configure-cloud-provider-firewall/
+  ##
+  ## Default value: []
+  loadBalancerSourceRanges: []
+
+db:
+  ## Application database host
+  ##
+  ## If you leave this blank, the chart will deploy a Postgres database
+  ## instance in the cluster. If you provide a value, you must also provide
+  ## credentials in `user` and `password`; these credentials must allow
+  ## the application to connect and execute the following commands:
+  ##
+  ##   CREATE ROLE "user" with PASSWORD 'password' LOGIN
+  ##   GRANT "user" to CURRENT_USER
+  ##   CREATE DATABASE "database" WITH OWNER "user"
+  ##   REVOKE CONNECT ON DATABASE "database" FROM PUBLIC
+  ##
+  ## The `user` and `password` values for databases created by the application
+  ## will be derived from the `auth.secretSeed` and system details.
+  ##
+  ## Default value: (blank)
+  host:
+
+  ## Application database port
+  ##
+  ## This is the port number that the application database runs on.
+  ##
+  ## Default value: 5432
+  port: 5432
+
+  tls:
+    ## mode:
+    ## * disable - No SSL
+    ## * require - Always SSL (skip verification)
+    ## * verify-ca - Always SSL (verify that the certificate presented by the
+    ##   server was signed by a trusted CA)
+    ## * verify-full - Always SSL (verify that the certification presented by
+    ##   the server was signed by a trusted CA and the server host name
+    ##   matches the one in the certificate)
+    mode: verify-full
+
+    ## ca: a PEM-encoded value with the certificate authority to trust when
+    ## connecting to the database. Use this if `tls.mode` is `verify-ca` or
+    ## `verify-full` and you have a private certificate authority.
+    ca:
+      valueFrom:
+        ## secretKeyRef: if set, the name and key of the secret where the CA
+        ## PEM file is stored.
+        secretKeyRef:
+          name:
+          key:
+        ## secretKeyRef: if set, the name and key of the config map where the CA
+        ## PEM file is stored.
+        configMapKeyRef:
+          name:
+          key:
+
+  ## Application database user
+  ##
+  ## Default value: a generated value derived from the `auth.secretSeed` and system details
+  user: # autogenerated
+
+  ## Application database password
+  ##
+  ## Default value: a generated password derived from the `auth.secretSeed` and system details
+  password: # autogenerated
+
+  ## secret is an application database secret used to encrypt data within the
+  ## database. The value is put through PBKDF2 key expansion before being used
+  ## as an encryption key.
+  ##
+  ## IMPORTANT: Do not change this value after the initial install as any
+  ## encrypted data will not be able to be decrypted.
+  ##
+  ## Default value: a generated password derived from the secretSeed and system details
+  secret: # autogenerated
+
+scan:
+  results:
+    ## ttl is the time-to-live for scan results expressed as a duration string (or 0).
+    ## A duration string is a sequence of decimal numbers, each with optional fraction
+    ## and a unit suffix, such as "24h". Valid time units are "ns", "us", "ms", "s",
+    ## "m", "h".
+    ##
+    ## Scan results will be purged at some point after the time-to-live expires.
+    ## A value of 0 means that scan results will be kept forever.
+    ##
+    ## Default value: 0 (keep forever)
+    ttl: 0
+
+  ## Enable malware scan cache.
+  ##
+  ## Default value: true
+  malwareCache:
+    enabled: true
+
+  sca:
+    ## The SCA scanner uses an ephemeral volume to store threat feed
+    ## information. This volume is created when the pod is scheduled on a node
+    ## and is populated by the sca-feed-consumer container.
+    dataVolume:
+      ## The amount of space to request for the data volume.
+      ##
+      ## Default value: 1Gi
+      sizeLimit: 1Gi
+
+  openscap:
+    ## The OpenSCAP scanner uses an ephemeral volume to store threat feed
+    ## information. This volume is created when the pod is scheduled on a node
+    ## and is populated by the openscap-feed-consumer container.
+    dataVolume:
+      ## The amount of space to request for the data volume.
+      ##
+      ## Default value: 1Gi
+      sizeLimit: 1Gi
+
+    ## The OpenSCAP scanner uses an ephemeral volume to store working data
+    ## for scans that are in progress. This data includes the compressed
+    ## and uncompressed image layer contents as well as scan results.
+    workVolume:
+      ## The amount of space to request for the work volume.
+      ##
+      ## Default value: 5Gi
+      sizeLimit: 5Gi
+
+  contentScan:
+    ## The content scanner uses an ephemeral volume to store working data
+    ## for scans that are in progress. This data includes the uncompressed
+    ## image layer contents.
+    workVolume:
+      ## The amount of space to request for the work volume.
+      ##
+      ## Default value: 1Gi
+      sizeLimit: 1Gi
+
+registry:
+  ## Enable the built-in registry for pre-registry scanning.
+  ##
+  ## Default value: false
+  enabled: false
+
+  ## Authentication for the built-in registry
+  auth:
+    ## User name for authentication to the registry
+    ##
+    ## Default value: empty string
+    username: ''
+
+    ## Password for authentication to the registry
+    ##
+    ## Default value: empty string
+    password: ''
+
+  ## The amount of space to request for the registry data volume
+  ##
+  ## Default value: 5Gi
+  dataVolume:
+    sizeLimit: 10Gi
+
+vulnerabilityScan:
+  workVolume:
+    ## The amount of space to request for the vulnerability scan working volume
+    ##
+    ## Default value: 3Gi
+    sizeLimit: 3Gi
+
+images:
+  defaults:
+    ## Default registry to pull images from. This can be overridden for
+    ## each image by specifying the registry attribute at the image level.
+    ## If no registry is provided, images will be pulled from your default
+    ## registry (which may be Docker Hub).
+    ##
+    ## Default value: blank
+    # registry:
+
+    ## Default project / organization to pull images from. This can be
+    ## overridden for each image by specifying the project attribute at the
+    ## image level.
+    ##
+    ## Default value: deepsecurity
+    # project: deepsecurity
+
+    ## Default tag for images to pull. This can be overridden for each image
+    ## by specifying the tag attribute at the image level.
+    tag: 1.2.44
+
+    ## Default pull policy for images. This can be overridden for each image
+    ## by specifying the pullPolicy attribute at the image level.
+    ##
+    ## Default value: IfNotPresent
+    pullPolicy: IfNotPresent
+
+    ## Default secret for pulling images. This can be overridden for each
+    ## image by specifying the imagePullSecret attribute at the image level.
+    ##
+    ## Default value: none
+    # imagePullSecret:
+  db:
+    repository: db
+    digest: sha256:cbaed95415961760067132ae42315542720a02d4d6137d11196f548c6749ed38
+  auth:
+    repository: auth
+    digest: sha256:15c0b30a4101527cda6dd4331ca27b39796a625d60e0c1c7c9f17df15f76c626
+  malwareScan:
+    repository: vscan
+    digest: sha256:d65b773c2c49f9bc5640f3d12f931dd157a168c7242e2215a4bef0ba18c46b4a
+  contentScan:
+    repository: contentscan
+    digest: sha256:94c0938d03929f36e8f2279daf6c1a7e311f53ecb5c84293681a325eaedb7816
+  scan:
+    repository: scan
+    digest: sha256:1805c4e406041fd0d1a71011a7621a75e1b657eabef66a9dcacf81362eab4888
+  registryviews:
+    repository: registryviews
+    digest: sha256:e0fc51119abee7206260239cb5052f94c8f8282e00fa74f729dcee9eecbabd2d
+  docs:
+    repository: api-docs
+    digest: sha256:e75698c6bb91c97e76d5158162e40c93762189da1ad8a673eb6aae42fad5788b
+  frontend:
+    repository: frontend
+    digest: sha256:fe68e523dd26f2020f21d277211bbddd9b90a77cf38ed2fba880ef042facce9d
+  proxy:
+    repository: proxy
+    digest: sha256:1d4d42fd47231053c55efa7b048c842e36bb4cee1b2251b851a827c18bf88038
+  license:
+    repository: license
+    digest: sha256:28da1ba4f6d04699a6f438dd075f01dbe15df3e4ee3c76894f6231f8a7671b4a
+  vulnerabilityScan:
+    repository: vulnerability-scan
+    digest: sha256:69352a903648b98d0533b05bfeb9fb9ca34faac7faf8c25e7cd3539be92ca57e
+  tasks:
+    repository: tasks
+    digest: sha256:a507f0b72be51fb746c8280724db57fd532957586a5107f00de5881e362170ca
+  metrics:
+    repository: k8s-metrics-reporter
+    digest: sha256:016c115bf983f8dc3c35c40a0e9f4a1eef76475e71992f7fd9dabc79bc77be4e
+  openscapScan:
+    repository: openscap-scan
+    digest: sha256:2cc84720e08a7546f832a39c9dc3c62b2878fb766896b3e0e598ad716e4b3003
+  openscapFeedConsumer:
+    repository: openscap-feed-consumer
+    digest: sha256:1acdb7887eb7478c2d1e433723b68e99e706594cb123241ab7c89f6340bcd3c1
+  registry:
+    repository: registry
+    digest: sha256:6916f44b3aee478154f36ce401548363a644e907fd1791b69cf975ca2d67bef9
+  registryCleaner:
+    repository: registry-cleaner
+    digest: sha256:b56aafaf360753a60d12b0a7fd756d11fd3dfb4fa67e81f48ba37d9c6264d1b8
+  dbInitializer:
+    repository: db-initializer
+    digest: sha256:97e1f38507fac7a4fde5ce6fe0d9ccb1c51deadd98ed0ef2aabdea1ef3678ec1
+  vulnDBInitializer:
+    repository: vuln-db-initializer
+    digest: sha256:54abc26364cacd7e4f064e20516aa879d7da151c90594c45c610a322f0476f05
+  imageScan:
+    repository: image-scan
+    digest: sha256:c56235de5753dd42faeab9ee4e4829b2b8565483bd8ba992723224d8f9735b4e
+  scaScan:
+    repository: sca-scan
+    digest: sha256:e73801d967981d336f5e3306a9c3627e5292738b5b62e153341d21f0d8d4361c
+  scaFeedConsumer:
+    repository: sca-feed-consumer
+
+    digest: sha256:5d453bcdfd41e82fda62e9db8d6aafa0975f4294df6d85e23eaa0efb5a6506cb
+replicas: {}
+
+persistence:
+  ## enabled is whether a persistent volume claim should be created for database storage.
+  ## If no persistent volume claim is created, then the database will be lost every time the
+  ## database container restarts.
+  enabled: true
+
+  ## storageClassName is the name of the storage class that should be used for persistent volumes.
+  ## If no value is specified, then `storageClassName` is left out of the persistent volume claim.
+  ## This value can be overridden for each persistent volume; see below.
+  ##
+  ## Reference: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#class
+  ##
+  ## Default: blank
+  storageClassName:
+
+  db:
+    ## size is the amount of persistent volume storage to request for the main application databases.
+    ##
+    ## Default value: 8Gi
+    size: 8Gi #?
+
+    ## storageClassName is the name of the storage class that should be used for persistent volume
+    ## used by the application database. If no value is specified, then the value of
+    ## `persistence.storageClassName` is used.
+    ##
+    ## Reference: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#class
+    ##
+    ## Default: blank
+    storageClassName:
+
+serviceAccount:
+  ## Amazon IAM role ARNs for projected service account.
+  ##
+  ## If you want to grant the minimal pods to access Amazon Amazon Elastic Container Registry (ECR), set the roleArn accordingly:
+  ## registryAccess:
+  ##   annotations:
+  ##     eks.amazonaws.com/role-arn: arn:aws:iam::[account-id]:role/[AmazonEC2ContainerRegistryReadOnlyRoleName]
+  ##
+  ## Reference: https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html
+  ##
+  ## Default: blank
+  registryAccess:
+    annotations:
+
+resources:
+  defaults: {}
+    # If you want to specify resources, uncomment the following
+    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+    # limits:
+    #  cpu: 100m
+    #  memory: 128Mi
+    # requests:
+    #  cpu: 100m
+    #  memory: 128Mi
+  db:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  vulnerabilityScan:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 800m
+      memory: 2Gi
+
+nodeSelector:
+  defaults: {}
+
+tolerations:
+  defaults: []
+
+affinity:
+  defaults: {}
+
+networkPolicy:
+  enabled: true
+
+  ## additionalWebhookTargetPorts is a list of destination port numbers that are allowed for web hook targets
+  ##
+  ## Default value: []
+  additionalWebhookTargetPorts: []
+
+  ## additionalRegistryPorts is a list of destination port numbers that are allowed for registry connections
+  ##
+  ## Default value: []
+  additionalRegistryPorts: []
+
+  ## additionalOutboundPorts is a list of destination port numbers that are allowed for outbound connections
+  ##
+  ## Default value: []
+  additionalOutboundPorts: []
+
+# Scheduled system tasks
+tasks:
+  # The scan task will periodically trigger scans on views that have the `schedule`
+  # flag set to `true`.
+  scan:
+    ## enabled controls whether or not to create the Kubernetes CronJob task that
+    ## will trigger the scheduled scan.
+    ##
+    ## Default value: true
+    enabled: true
+
+    ## schedule controls the schedule for the scheduled scan. It is a string in
+    ## [cron](https://en.wikipedia.org/wiki/Cron) format.
+    ##
+    ## Default value: @daily (once a day, at midnight UTC)
+    schedule: '@daily'
+
+  # The metrics collector will periodically retrieve metrics from pods that have the
+  # `metrics: include` label.
+  metricsCollector:
+    ## enabled controls whether or not to create the Kubernetes pod that will perform
+    ## metrics collection.
+    ##
+    ## Default value: true
+    enabled: true
+
+  metricsReporter:
+    ## enabled controls whether or not to create the Kubernetes pod that will perform
+    ## metrics reporting.
+    ##
+    ## Default value: true
+    enabled: true
+
+    ## url is the target URL for reporting metrics. If no URL is provided, then metrics
+    ## will not be reported.
+    ##
+    ## Default value: https://licenseupdate.trendmicro.com/fb/bifconnect.ashx
+    url: https://licenseupdate.trendmicro.com/fb/bifconnect.ashx
+
+  registryCleaner:
+    ## enabled controls whether or not to create the Kubernetes Cronjob task that will
+    ## trigger local registry cleaner.
+    ##
+    ## Default value: true
+    enabled: true
+
+    ## schedule controls the schedule for metrics collection. It is a string in
+    ## [cron](https://en.wikipedia.org/wiki/Cron) format.
+    ##
+    ## Default value: @daily
+    schedule: '@daily'
+
+telemetry:
+  ## enabled controls whether telemetry events will be sent.
+  ##
+  ## Default value: true
+  enabled: true
+
+  ## endpoint is the endpoint of the telemetry service.
+  ##
+  ## Default value: https://telemetry.deepsecurity.trendmicro.com
+  endpoint: https://telemetry.deepsecurity.trendmicro.com
+
+  ## interval controls the maximum interval between telemetry data reports
+  ##
+  ## Default value: 24h
+  interval: 24h
+
+  ## publicKey is the public key used when communicating with the telemetry service.
+  ##
+  ## Default value: (built-in)
+  publicKey:
+
+# securityContext specifies the security contexts that we'll apply to the pods.
+securityContext:
+  ## enabled is a global flag controlling whether security contexts are included at all in the manifest
+  ## Default value: true
+  enabled: true
+
+  ## default is the default security context that we'll apply at the pod and container level.
+  ## if `securityContext.enabled` is true, the `pod` value will be inserted into the `Deployment` manifest
+  ## as part of the pod template and the `container` value will be inserted at the container level.
+  default:
+    pod:
+      runAsNonRoot: true
+    container:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      privileged: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      # seLinuxOptions: "If unspecified, the container runtime will allocate a random SELinux context for each container": this seems appropriate.
+      runAsUser: 1
+
+  db:
+    pod:
+      runAsNonRoot: true
+      fsGroup: 70
+    container:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      privileged: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      # seLinuxOptions: "If unspecified, the container runtime will allocate a random SELinux context for each container": this seems appropriate.
+      runAsUser: 70
+
+  registry:
+    pod:
+      runAsUser: 1000
+
+  scan:
+    pod:
+      runAsNonRoot: true
+      # fsGroup: for using projected service account tokens (kubernetes/kubernetes#82573)
+      fsGroup: 65534
+    container:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      privileged: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      # seLinuxOptions: "If unspecified, the container runtime will allocate a random SELinux context for each container": this seems appropriate.
+      runAsUser: 1
+
+  registryviews:
+    pod:
+      runAsNonRoot: true
+      # fsGroup: for using projected service account tokens (kubernetes/kubernetes#82573)
+      fsGroup: 65534
+    container:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      privileged: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      # seLinuxOptions: "If unspecified, the container runtime will allocate a random SELinux context for each container": this seems appropriate.
+      runAsUser: 1
+
+cursor:
+  ## secret is an application cursor secret used to encrypt data within the
+  ## cursor. The value is put through PBKDF2 key expansion before being used
+  ## as an encryption key.
+  ##
+  ## IMPORTANT: Do not change this value after the initial install as any
+  ## encrypted data will not be able to be decrypted.
+  ##
+  ## Default value: a generated password derived from the secretSeed and system details
+  secret:
+
+feed:
+  openscap:
+    url: https://dstf.trendmicro.com/oval/manifest.json
+    interval: 24h
+
+  sca:
+    url: https://dstf.trendmicro.com/sca/feed.bin
+    interval: 24h

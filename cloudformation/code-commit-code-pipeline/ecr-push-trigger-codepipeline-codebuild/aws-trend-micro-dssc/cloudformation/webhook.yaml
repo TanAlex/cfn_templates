@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a Lambd and an ApiGateway endpoint to process security scan results.
+
+Parameters:
+  PipelineName:
+    Type: String
+    Description:  The name of the pipeline that will be created.  Used here to help lock down permissions instead of using wildcards.
+  DeepSecuritySmartCheckSecretSSM:
+    Type: String
+    Description: The DSSC Secret SSM Parameter name used to sign the X-Scan-Event-Signature header
+    Default: /pipeline/example/trendmicro/dssc/secret
+
+Resources:
+
+  WebhookUrl:
+    Type: AWS::SSM::Parameter
+    DependsOn: ApiGateway
+    Properties:
+      Name: /pipeline/example/trendmicro/dssc/webhook
+      Type: String
+      Value: !Sub  https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/dev
+      Description: DSSC Webhook Url
+
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${AWS::StackName}
+      Description: Example API for Trend Micro DSSC Webhook
+
+  ApiGatewayRootMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations
+          - lambdaArn: !GetAtt WebhookLambda.Arn
+      ResourceId: !GetAtt ApiGateway.RootResourceId
+      RestApiId: !Ref ApiGateway
+
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ApiGatewayRootMethod
+    Properties:
+      RestApiId: !Ref ApiGateway
+      StageName: dev
+
+  WebhookLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: python3.7
+      Description: Example Lambda for Trend Micro DSSC Webhook
+      FunctionName: !Sub ${AWS::StackName}
+      Timeout: 60
+      Environment:
+        Variables:
+          DSSC_SECRET_SSM: !Ref DeepSecuritySmartCheckSecretSSM
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import logging
+          import hmac
+          import hashlib
+
+          SSM_CLIENT = boto3.client('ssm')
+          CODEPIPELINE_CLIENT = boto3.client('codepipeline')
+          LOGGER = logging.getLogger()
+          LOGGER.setLevel(logging.INFO)
+
+          def get_secret():
+            return SSM_CLIENT.get_parameter(Name=os.environ['DSSC_SECRET_SSM'])['Parameter']['Value']
+
+          def is_from_tmdssc(body, signature, agent):
+            message = bytes(body, 'utf-8')
+            secret = bytes(get_secret(), 'utf-8')
+
+            actual = hmac.new(secret, message, digestmod=hashlib.sha256).hexdigest()
+
+            return (hmac.compare_digest(signature, actual) and agent == 'DeepSecuritySmartCheck')
+
+          def lambda_handler(event, context):
+            body = event['body'].replace('\"', '"')
+            signature = event['headers']['X-Scan-Event-Signature']
+            agent = event['headers']["User-Agent"]
+
+            if is_from_tmdssc(body=body, signature=signature, agent=agent):
+
+              payload = json.loads(event['body'])
+              pipeline_execution_id = payload['scan']['context']['pipeline_execution_id']
+              pipeline_name = payload['scan']['context']['pipeline_name']
+              stage_name = 'ApproveDeployment'
+              action_name = 'SecurityScanApproval'
+              critical_errors_threshold = os.environ.get('CRITICAL_ERRORS_THRESHOLD') or 0
+
+              pipeline_state = CODEPIPELINE_CLIENT.get_pipeline_state(
+                name=pipeline_name
+              )
+
+              token = None
+              for state in pipeline_state['stageStates']:
+                if state['stageName'] == stage_name:
+                  for action in state['actionStates']:
+                    if action['actionName'] == action_name and action['latestExecution']['status'] == 'InProgress':
+                      token = action['latestExecution']['token']
+                      break
+                  break
+
+              if token:
+                malware = payload['scan']['findings'].get('malware', 0)
+                critical_errors = payload['scan']['findings']['vulnerabilities']['total'].get('critical', 0)
+                view_url = f"{payload['scan']['context']['dssc_url']}/scans/{payload['scan']['id']}"
+                status = None
+
+                if critical_errors > int(critical_errors_threshold) or malware > 0:
+                  status = 'Rejected'
+                  summary = f"There are {malware} malware issue(s) and {critical_errors} critical issue(s) detected. Full results available at {view_url}"
+                else:
+                  status = 'Approved'
+                  summary = f'Full results available at {view_url}'
+
+                CODEPIPELINE_CLIENT.put_approval_result(
+                  pipelineName = pipeline_name,
+                  stageName = stage_name,
+                  actionName = action_name,
+                  result = {
+                    'summary': summary,
+                    'status': status
+                  },
+                  token = token
+                )
+                LOGGER.info(f'Pipeline {pipeline_name} execution id {pipeline_execution_id} status set to \'{status}\'.')
+              else:
+                LOGGER.info(f'It appears that {pipeline_name} execution {pipeline_execution_id} is no longer InProgress so there is nothing to Approve/Reject.')
+
+              return {
+                  'statusCode': 204,
+                  'body': None
+              }
+            else:
+              LOGGER.error(f'Calculated signature of event body received does not match the signature provided from DSSC, or the user agent is not DeepSecuritySmartCheck!')
+              return {
+                  'statusCode': 403,
+                  'body': None
+              }
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: trendmicro-lambda-webhook
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: logs:CreateLogGroup
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+              - Effect: Allow
+                Action:
+                  - codepipeline:GetPipelineState
+                  - codepipeline:PutApprovalResult
+                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${PipelineName}*
+              - Effect: Allow
+                Action: ssm:getParameter
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DeepSecuritySmartCheckSecretSSM}
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+
+  LambdaApiGatewayInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt WebhookLambda.Arn
+      Principal: apigateway.amazonaws.com
