@@ -1,0 +1,4 @@
+[swarm-master] 
+35.155.181.203 ansible_ssh_user=ubuntu
+[swarm-nodes]
+18.236.75.21 ansible_ssh_user=ubuntu
