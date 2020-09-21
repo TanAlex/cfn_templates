@@ -1,0 +1,382 @@
+Description: Creates VPC and required components of VPC
+Parameters:
+  VPC1CIDR:
+    Type: String
+    Description: CIDR block should be used to create the VPC1 (e.g. 172.21.1.0/24)
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x. (e.g. 172.21.1.0/24)
+  VPC1PublicSubnet1:
+    Type: String
+    Description: CIDR block should be used to create the public subnet in AZ1 (e.g. 172.21.1.0/26)
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x. (e.g. 172.21.1.0/26)
+  VPC1PublicSubnet2:
+    Type: String
+    Description: CIDR block should be used to create the public subnet in AZ1 (e.g. 172.21.1.64/26)
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x. (e.g. 172.21.1.64/26)
+  VPC1PrivateSubnet1:
+    Type: String
+    Description: CIDR block should be used to create the public subnet in AZ1 (e.g. 172.21.1.128/26)
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x. (e.g. 172.21.1.128/26)
+  VPC1PrivateSubnet2:
+    Type: String
+    Description: CIDR block should be used to create the public subnet in AZ1 (e.g. 172.21.1.192/26)
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x. (e.g. 172.21.1.192/26)
+  SNSIAMStackName:
+    Type: String
+    Description: Name of the stack which created SNS topic and IAM roles
+    Default: "IaCIAMCFT"  
+  BastionHostAMIid:
+    Type: String
+    Description: AMI ID to be used for Bastion Host
+    Default: ami-009d6802948d06e52
+  BastionHostSSHKey:
+    Type: String
+    Description: SSH key to be used to login to Bastion Host
+    Default: IaCNewAccount
+  TagPrefix:
+    Type: String
+    Description: Enter Prefix that should be used for Tags.
+  RemoteVpnDeviceIp:
+    Type: String
+    Description: Public IP address of the Customer Gateway (Remote VPN Device)
+    Default: "100.64.100.101"
+  RemoteNetworkCidr:
+    Type: String
+    Description: Remote network IP address
+    Default: "100.64.0.0/16"
+  RemoteBgpAsn:
+    Type: String
+    Description: BGP ASN of Customer Gateway
+    Default: "65555"
+
+Resources:
+  VPC1:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock:
+        Ref: VPC1CIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value:
+            Ref: TagPrefix
+  VPC1BastionHostSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow ssh to Bastion host
+      VpcId:
+        Ref: VPC1
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+
+  VPC1PubSubnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: VPC1
+      CidrBlock:
+        Ref: VPC1PublicSubnet1
+      AvailabilityZone:
+        Fn::Sub: ${AWS::Region}a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value:
+            Fn::Sub: ${TagPrefix}-VPC1PublicSubnet1
+
+  VPC1PubSubnet2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: VPC1
+      CidrBlock:
+        Ref: VPC1PublicSubnet2
+      AvailabilityZone:
+        Fn::Sub: ${AWS::Region}b
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value:
+            Fn::Sub: ${TagPrefix}-VPC1PublicSubnet2
+
+  VPC1PriSubnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: VPC1
+      CidrBlock:
+        Ref: VPC1PrivateSubnet1
+      AvailabilityZone:
+        Fn::Sub: ${AWS::Region}a
+      Tags:
+        - Key: Name
+          Value:
+            Fn::Sub: ${TagPrefix}-VPC1PrivateSubnet1
+
+  VPC1PriSubnet2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: VPC1
+      CidrBlock:
+        Ref: VPC1PrivateSubnet2
+      AvailabilityZone:
+        Fn::Sub: ${AWS::Region}b
+      Tags:
+        - Key: Name
+          Value:
+            Fn::Sub: ${TagPrefix}-VPC1PrivateSubnet2
+  VPC1EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref BastionHostAMIid
+      InstanceType: t2.micro
+      KeyName: !Ref BastionHostSSHKey
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: [ !Ref VPC1BastionHostSG ]
+          SubnetId: !Ref VPC1PubSubnet1
+      Tags:
+        - Key: Name
+          Value: VPC1BastionHost
+
+  VPC1InternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: Name
+          Value:
+            Fn::Sub: ${TagPrefix}-VPC1IGW
+
+  VPC1GatewayToInternet:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId:
+        Ref: VPC1
+      InternetGatewayId:
+        Ref: VPC1InternetGateway
+
+  VPC1NATEIP1:
+    Type: "AWS::EC2::EIP"
+    Properties:
+      Domain: vpc
+    DependsOn: VPC1GatewayToInternet
+
+  VPC1NATEIP2:
+    Type: "AWS::EC2::EIP"
+    Properties:
+      Domain: vpc
+    DependsOn: VPC1GatewayToInternet
+
+  VPC1NAT1:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId:
+        Fn::GetAtt: [ VPC1NATEIP1, AllocationId ]
+      SubnetId:
+        Ref: VPC1PubSubnet1
+
+  VPC1NAT2:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId:
+        Fn::GetAtt: [ VPC1NATEIP2, AllocationId ]
+      SubnetId:
+        Ref: VPC1PubSubnet2
+
+  VPC1PublicRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId:
+        Ref: VPC1
+      Tags:
+        - Key: Name
+          Value:
+            Fn::Sub: ${TagPrefix}-VPC1PublicRouteTable
+
+  VPC1PrivateRouteTable1:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId:
+        Ref: VPC1
+      Tags:
+        - Key: Name
+          Value:
+            Fn::Sub: ${TagPrefix}-VPC1PrivateRouteTable1
+
+  VPC1PrivateRouteTable2:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId:
+        Ref: VPC1
+      Tags:
+        - Key: Name
+          Value:
+            Fn::Sub: ${TagPrefix}-VPC1PrivateRouteTable2
+
+  VPC1PublicRoute:
+    Type: "AWS::EC2::Route"
+    DependsOn: VPC1GatewayToInternet
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: VPC1InternetGateway
+      RouteTableId:
+        Ref: VPC1PublicRouteTable
+
+  VPC1PrivateRoute1:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        Ref: VPC1NAT1
+      RouteTableId:
+        Ref: VPC1PrivateRouteTable1
+
+  VPC1PrivateRoute2:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId:
+        Ref: VPC1NAT2
+      RouteTableId:
+        Ref: VPC1PrivateRouteTable2
+
+  VPC1PubSubnet1RTAssoc:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId:
+        Ref: VPC1PublicRouteTable
+      SubnetId:
+        Ref: VPC1PubSubnet1
+
+  VPC1PubSubnet2RTAssoc:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId:
+        Ref: VPC1PublicRouteTable
+      SubnetId:
+        Ref: VPC1PubSubnet2
+
+  VPC1PrivSubnet1RTAssoc:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId:
+        Ref: VPC1PrivateRouteTable1
+      SubnetId:
+        Ref: VPC1PriSubnet1
+
+  VPC1PrivSubnet2RTAssoc:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId:
+        Ref: VPC1PrivateRouteTable2
+      SubnetId:
+        Ref: VPC1PriSubnet2
+        
+  VPC1VPNGateway:
+    Type: AWS::EC2::VPNGateway
+    Properties:
+      Type: ipsec.1
+      Tags:
+      - Key: Name
+        Value:
+          Ref: AWS::StackName
+  VPC1VPNGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: VPC1
+      VpnGatewayId:
+        Ref: VPC1VPNGateway
+  CustomerGateway:
+    Type: AWS::EC2::CustomerGateway
+    Properties:
+      Type: ipsec.1
+      BgpAsn:
+        Ref: RemoteBgpAsn
+      IpAddress:
+        Ref: RemoteVpnDeviceIp
+      Tags:
+      - Key: Name
+        Value:
+          Ref: AWS::StackName
+      - Key: VPN
+        Value:
+          Fn::Join:
+          - ''
+          - - 'Gateway to '
+            - Ref: RemoteVpnDeviceIp
+  VPC1VPNConnection:
+    Type: AWS::EC2::VPNConnection
+    DependsOn:
+    - CustomerGateway
+    - VPC1VPNGateway
+    Properties:
+      Type: ipsec.1
+      StaticRoutesOnly: 'false'
+      CustomerGatewayId:
+        Ref: CustomerGateway
+      VpnGatewayId:
+        Ref: VPC1VPNGateway
+      Tags:
+      - Key: Name
+        Value:
+          Ref: AWS::StackName
+      - Key: VPN
+        Value:
+          Fn::Join:
+          - ''
+          - - 'Connection to '
+            - Ref: RemoteNetworkCidr
+  VPC1VPNGatewayRoutePropagationBoth:
+    Type: AWS::EC2::VPNGatewayRoutePropagation
+    DependsOn:
+    - VPC1VPNGateway
+    - VPC1VPNConnection
+    Properties:
+      RouteTableIds:
+        - Ref: VPC1PublicRouteTable
+        - Ref: VPC1PrivateRouteTable1
+        - Ref: VPC1PrivateRouteTable2
+      VpnGatewayId:
+        Ref: VPC1VPNGateway
+
+Outputs:
+  VPC1ID:
+    Description: "VPC1 ID"
+    Value:
+      Ref: VPC1
+  VPC1PrivateSubnet1:
+    Description: "Subnet ID of private subnet in AZ1"
+    Value:
+      Ref: VPC1PriSubnet1
+  VPC1PrivateSubnet2:
+    Description: "Subnet ID of private subnet in AZ2"
+    Value:
+      Ref: VPC1PriSubnet2
+  VPC1PublicSubnet1:
+    Description: "Subnet ID of public subnet in AZ1"
+    Value:
+      Ref: VPC1PubSubnet1
+  VPC1PublicSubnet2:
+    Description: "Subnet ID of public subnet in AZ2"
+    Value:
+      Ref: VPC1PubSubnet2
+  NATEIP1:
+    Description: "NAT Gateway ID in AZ1"
+    Value:
+      Ref: VPC1NAT1
+  NATEIP2:
+    Description: "NAT Gateway ID in AZ2"
+    Value:
+      Ref: VPC1NAT2

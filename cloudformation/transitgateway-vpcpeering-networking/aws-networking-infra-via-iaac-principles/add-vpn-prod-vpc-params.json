@@ -1,0 +1,15 @@
+{
+  "Parameters" : {
+  "VPC1CIDR": "172.22.1.0/24",
+  "VPC1PublicSubnet1": "172.22.1.0/26",
+  "VPC1PublicSubnet2": "172.22.1.64/26",
+  "VPC1PrivateSubnet1": "172.22.1.128/26",
+  "VPC1PrivateSubnet2": "172.22.1.192/26",
+  "TagPrefix": "IaCBlog",
+  "BastionHostAMIid": "ami-009d6802948d06e52",
+  "BastionHostSSHKey": "MyKeyPairIaC",
+  "RemoteVpnDeviceIp": "100.64.100.100",
+	"RemoteNetworkCidr": "100.64.0.0/16",
+	"RemoteBgpAsn": "65555"
+  }
+  }

@@ -1,0 +1,171 @@
+Description: IaCBlogPipeline
+Parameters:
+  CFNTemplateRepoName:
+    Type: String
+    Description: Name of the repo which contains CFN template.
+  ArtifactStoreS3Location:
+    Type: String
+    Description: Name of the S3 bucket to store CodePipeline artificat.
+  IAMStackName:
+    Type: String
+    Description: Name of the stack which created SNS topic and IAM roles
+    Default: "IaCBlogIAMRoles"  
+  SNSStackName:
+    Type: String
+    Description: Name of the stack which created SNS topic and IAM roles
+    Default: "IaCBlogSNSTopics"  
+
+Resources:
+  DeployPipeline:
+    Type: "AWS::CodePipeline::Pipeline"
+    Properties:
+      Name:
+        Fn::Sub: ContinuousDeliveryCFN-${AWS::StackName}
+      RoleArn:
+        !Join
+          - ""
+          - - Fn::Sub: arn:aws:iam::${AWS::AccountId}:role/
+            - Fn::ImportValue: !Sub "${IAMStackName}-CodePipelineRole"
+      Stages:
+        -
+          Name: CFNSource
+          Actions:
+            -
+              Name: CFNTemplateSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: CodeCommit
+              OutputArtifacts:
+                -
+                  Name: CFNTemplateArtifact
+              Configuration:
+                BranchName: master
+                RepositoryName:
+                  Ref: CFNTemplateRepoName
+              RunOrder: 1
+        -  
+          Name: UAT
+          Actions:
+            -
+              Name: CreateTestCFNStack
+              InputArtifacts:
+                -
+                  Name: CFNTemplateArtifact
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              OutputArtifacts:
+                -
+                  Name: CreatedTestCFNStack
+              Configuration:
+                ActionMode: REPLACE_ON_FAILURE
+                RoleArn:
+                  !Join
+                    - ""
+                    - - Fn::Sub: arn:aws:iam::${AWS::AccountId}:role/
+                      - Fn::ImportValue: !Sub "${IAMStackName}-CloudFormationRole"
+                Capabilities: CAPABILITY_NAMED_IAM
+                StackName:
+                  Fn::Sub: Test-${AWS::StackName}
+                TemplateConfiguration: CFNTemplateArtifact::uat-vpc-params.json
+                TemplatePath: CFNTemplateArtifact::vpc-stack.yaml
+              RunOrder: 1
+            -
+              Name: UATApproval
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Version: 1
+                Provider: Manual
+              Configuration:
+                NotificationArn:
+                  Fn::ImportValue: !Sub ${SNSStackName}-UATTopicIaC
+                CustomData: Approve once UAT has been completed.
+              RunOrder: 2
+            -
+              Name: ProceedToProd
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              OutputArtifacts:
+                -
+                  Name: DeletedTestStack
+              Configuration:
+                StackName:
+                  Fn::Sub: Test-${AWS::StackName}
+                ActionMode: DELETE_ONLY
+                RoleArn:
+                  !Join
+                    - ""
+                    - - Fn::Sub: arn:aws:iam::${AWS::AccountId}:role/
+                      - Fn::ImportValue: !Sub "${IAMStackName}-CloudFormationRole"
+              RunOrder: 3
+        -
+          Name: Production
+          Actions:
+            -
+              Name: CreateProdChangeSet
+              InputArtifacts:
+                -
+                  Name: CFNTemplateArtifact
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              OutputArtifacts:
+                -
+                  Name: CreatedProdChangeSet
+              Configuration:
+                ActionMode: CHANGE_SET_REPLACE
+                ChangeSetName: ProdCBChangeSet
+                RoleArn:
+                  !Join
+                    - ""
+                    - - Fn::Sub: arn:aws:iam::${AWS::AccountId}:role/
+                      - Fn::ImportValue: !Sub "${IAMStackName}-CloudFormationRole"
+                Capabilities: CAPABILITY_NAMED_IAM
+                StackName:
+                  Fn::Sub: Prod-${AWS::StackName}
+                TemplateConfiguration: CFNTemplateArtifact::prod-vpc-params.json
+                TemplatePath: CFNTemplateArtifact::vpc-stack.yaml
+              RunOrder: 1
+            -
+              Name: ProdApproval
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Version: 1
+                Provider: Manual
+              Configuration:
+                NotificationArn:
+                  Fn::ImportValue: !Sub ${SNSStackName}-ProdTopicIaC
+                CustomData: Approve deployment in production.
+              RunOrder: 2
+            -
+              Name: DeployProduction
+              InputArtifacts:
+                -
+                  Name: CreatedProdChangeSet
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              Configuration:
+                ActionMode: CHANGE_SET_EXECUTE
+                ChangeSetName: ProdCBChangeSet
+                StackName:
+                  Fn::Sub: Prod-${AWS::StackName}
+              RunOrder: 3
+
+      ArtifactStore:
+        Type: S3
+        Location:
+          Ref: ArtifactStoreS3Location

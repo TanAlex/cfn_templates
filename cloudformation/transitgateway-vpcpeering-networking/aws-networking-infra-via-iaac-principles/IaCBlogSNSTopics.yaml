@@ -1,0 +1,50 @@
+Description: IaCBlog SNS Topics
+Parameters:
+  UATTopic:
+    Type: String
+    Description: Name of the SNS topic in same region to send UAT approval notification.
+  ProdTopic:
+    Type: String
+    Description: Name of the SNS topic in same region to send Production approval notification.
+  UATApprovalEmail:
+    Type: String
+    Description: Email address to which UAT approval should be sent
+    AllowedPattern: "([a-zA-Z0-9_\\-\\.]+)@((\\[[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.)|(([a-zA-Z0-9\\-]+\\.)+))([a-zA-Z]{2,4}|[0-9]{1,3})(\\]?)"
+    ConstraintDescription: Must be a valid email address. (e.g. name@example.com)
+  ProdApprovalEmail:
+    Type: String
+    Description: Email address to which Prod approval should be sent
+    AllowedPattern: "([a-zA-Z0-9_\\-\\.]+)@((\\[[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.)|(([a-zA-Z0-9\\-]+\\.)+))([a-zA-Z]{2,4}|[0-9]{1,3})(\\]?)"
+    ConstraintDescription: Must be a valid email address. (e.g. name@example.com)  
+Resources:
+  UATTopicIaC:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      Subscription:
+        -
+          Endpoint:
+            Ref: UATApprovalEmail
+          Protocol: "email"
+  ProdTopicIaC:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      Subscription:
+        -
+          Endpoint:
+            Ref: ProdApprovalEmail
+          Protocol: "email"
+Outputs:
+  UATTopicIaC:
+    Description: UATTopicIaC
+    Value:
+      Ref: UATTopicIaC
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-UATTopicIaC"
+  ProdTopicIaC:
+    Description: ProdTopicIaC
+    Value:
+      Ref: ProdTopicIaC
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-ProdTopicIaC"
