@@ -1,0 +1,14 @@
+AWSTemplateFormatVersion:  2010-09-09
+
+Description: 'This template creates a subscriptionfilter'
+
+Parameters: 
+  LambdaEdgeFunctionName: 
+    Description: The name of the LambdaEdge to apply the subscription filter to.    
+    Type: String
+    MinLength: 1
+Resources:
+  CloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub '/aws/lambda/us-east-1.${LambdaEdgeFunctionName}'
