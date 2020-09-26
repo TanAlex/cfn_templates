@@ -1,0 +1,54 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ''
+Resources:
+  S3SharedBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      LoggingConfiguration: {}
+      AccessControl: LogDeliveryWrite
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+  BucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket:
+        Ref: S3SharedBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+                - config.amazonaws.com
+            Action:
+              - 's3:GetBucketAcl'
+            Resource:
+              - 'Fn::GetAtt':
+                  - S3SharedBucket
+                  - Arn
+            Effect: Allow
+            Condition: {}
+          - Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+                - config.amazonaws.com
+            Action:
+              - 's3:PutObject'
+            Resource:
+              - 'Fn::Join':
+                  - ''
+                  - - ''
+                    - 'Fn::GetAtt':
+                        - S3SharedBucket
+                        - Arn
+                    - /*
+            Effect: Allow
+            Condition:
+              StringEquals:
+                's3:x-amz-acl': bucket-owner-full-control
+    DependsOn: S3SharedBucket

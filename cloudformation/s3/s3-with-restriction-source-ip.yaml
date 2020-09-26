@@ -1,0 +1,33 @@
+  CodeDeployBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+  JenkinsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: CodeDeployBucket
+      PolicyDocument:
+        Statement:
+        - Sid: IPAllow
+          Effect: Allow
+          Action:
+          - s3:Get*
+          - s3:List*
+          Resource:
+            Fn::Join:
+            - ''
+            - - 'arn:aws:s3:::'
+              - Ref: CodeDeployBucket
+              - "/*"
+          Principal: "*"
+          Condition:
+            IpAddress:
+              aws:SourceIp:
+              - Fn::Join:
+                - ''
+                - - Fn::GetAtt:
+                    - JenkinsServer
+                    - PublicIp
+                  - "/24"

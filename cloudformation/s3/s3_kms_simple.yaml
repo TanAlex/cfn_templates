@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: 'The AWS CloudFormation template creates a KMS encryption key and a encrypted S3 bucket using the encryption key'
+
+Resources:
+
+    # KMS S3 encryption key
+    s3Key:
+      Type: AWS::KMS::Key
+      Properties:
+        KeyPolicy:
+          Version: 2012-10-17
+          Id: key-s3
+          Statement:
+            - Sid: Enable IAM User Permissions
+              Effect: Allow
+              Principal:
+                AWS: !Join
+                  - ''
+                  - - 'arn:aws:iam::'
+                    - !Ref 'AWS::AccountId'
+                    - ':root'
+              Action: 'kms:*'
+              Resource: '*'
+            - Sid: Allow VPC Flow Logs to use the key as well
+              Effect: Allow
+              Principal:
+                Service:
+                  - delivery.logs.amazonaws.com
+              Action: 'kms:GenerateDataKey*'
+              Resource: '*'
+    s3KeyAlias:
+      Type: AWS::KMS::Alias
+      Properties:
+        AliasName: alias/s3
+        TargetKeyId:
+          Ref: s3Key
+
+    # Encrypted S3 Bucket for Storage
+    S3GeneralBucket:
+      Type: AWS::S3::Bucket
+      DeletionPolicy: Retain
+      Properties:
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              KMSMasterKeyID: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:${s3KeyAlias}'
+              SSEAlgorithm: 'aws:kms'
+
+Outputs:
+    s3KeyAlias:
+        Description: 'S3 KMS Key Alias'
+        Value:
+            Ref: 's3KeyAlias'
+    S3GeneralBucket:
+        Description: 'Encrypted S3 Bucket'
+        Value:
+            Ref: 'S3GeneralBucket'
